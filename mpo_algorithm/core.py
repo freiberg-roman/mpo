@@ -36,25 +36,26 @@ class GaussianMLPActor(nn.Module):
         self.std_layer = nn.Linear(hidden_sizes[-1], act_dim)
 
     def forward(self, state, deterministic=False, with_logprob=True):
-        # parameters from net
-        net_out = self.net(state)
-        mu = self.mu_layer(net_out)
-        std = self.std_layer(net_out)
-        soft_plus_std = torch.log(torch.exp(std) + 1)
+        with torch.no_grad():
+            # parameters from net
+            net_out = self.net(state)
+            mu = self.mu_layer(net_out)
+            std = self.std_layer(net_out)
+            soft_plus_std = torch.log(torch.exp(std) + 1)
 
-        # distribution
-        pi_distribution = Normal(mu, soft_plus_std)
-        if deterministic:
-            pi_action = mu
-        else:
-            pi_action = pi_distribution.rsample()
+            # distribution
+            pi_distribution = Normal(mu, soft_plus_std)
+            if deterministic:
+                pi_action = mu
+            else:
+                pi_action = pi_distribution.rsample()
 
-        if with_logprob:
-            logp_pi = pi_distribution.log_prob(pi_action)
-        else:
-            logp_pi = None
+            if with_logprob:
+                logp_pi = pi_distribution.log_prob(pi_action)
+            else:
+                logp_pi = None
 
-        return pi_action, logp_pi, mu, soft_plus_std
+            return pi_action, logp_pi, mu, soft_plus_std
 
     def get_prob(self, state, action):
         # parameters from net

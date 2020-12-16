@@ -29,44 +29,34 @@ class GaussianMLPActor(nn.Module):
         super().__init__()
         self.net = mlp([state_dim] + list(hidden_sizes), activation, activation)
 
-        # layer outputs the mean of action
         self.mu_layer = nn.Linear(hidden_sizes[-1], act_dim)
         self.std_layer = nn.Linear(hidden_sizes[-1], act_dim)
 
-    def forward(self, state, deterministic=False, with_logprob=True):
-        with torch.no_grad():
-            # parameters from net
-            net_out = self.net(state)
-            mu = self.mu_layer(net_out)
-            std = self.std_layer(net_out)
-            soft_plus_std = torch.log(torch.exp(std) + 1)
-            covariance = soft_plus_std ** 2
-
-            # distribution
-            pi_distribution = Normal(mu, covariance)
-            if deterministic:
-                pi_action = mu
-            else:
-                pi_action = pi_distribution.rsample()
-
-            if with_logprob:
-                logp_pi = pi_distribution.log_prob(pi_action)
-            else:
-                logp_pi = None
-
-            return pi_action, logp_pi, mu, covariance
-
-    def get_prob(self, state, action):
-        # parameters from net
+    def forward(self, state):
         net_out = self.net(state)
         mu = self.mu_layer(net_out)
         std = self.std_layer(net_out)
         soft_plus_std = torch.log(torch.exp(std) + 1)
         covariance = soft_plus_std ** 2
+        return mu, covariance
 
-        # distribution
+    def get_prob(self, mu, covariance, action):
         pi_distribution = Normal(mu, covariance)
-        return pi_distribution.log_prob(action), mu, covariance
+        logp = pi_distribution.log_prob(action)
+        return logp
+
+    def get_act(self, mu, covariance, n, deterministic=False):
+        mu = mu.clone().detach().requires_grad_(True)
+        covariance = covariance.clone().detach().requires_grad_(True)
+
+        if deterministic:
+            return torch.squeeze(mu.repeate(n, 1))
+
+        mu = mu.repeat(n, 1)
+        covariance = covariance.repeat(n, 1)
+        pi_distribution = Normal(mu, covariance)
+        actions = pi_distribution.rsample()
+        return actions, pi_distribution.log_prob(actions)
 
 
 
@@ -94,5 +84,6 @@ class MLPActorCritic(nn.Module):
 
     def act(self, obs, deterministic=False):
         with torch.no_grad():
-            a, logp_pi, _, _ = self.pi(obs, deterministic, True)
+            mu, cov = self.pi(obs)
+            a, logp_pi = self.pi.get_act(mu, cov, 1, deterministic=deterministic)
             return a.numpy(), logp_pi

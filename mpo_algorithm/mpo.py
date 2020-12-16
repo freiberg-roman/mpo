@@ -50,7 +50,7 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         replay_size=int(1e6), gamma=0.99, max_traj=100000, traj_update_count=50,
         max_ep_len=1000, eps=0.1, eps_mu=0.1, eps_sig=0.0001, lr=0.0005,
         alpha=0.1, batch_size_replay=100, batch_size_policy=100, init_eta=10.0,
-        init_eta_mu=10.0, init_eta_sigma=100.0, update_target_after=1000,
+        init_eta_mu=10.0, init_eta_sigma=10.0, update_target_after=1000,
         num_test_episodes=10, logger_kwargs=dict(), save_freq=1):
     logger = EpochLogger(**logger_kwargs)
     logger.save_config(locals())
@@ -105,7 +105,7 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # note: the states are the same as used for q_values
         expected_q = torch.reshape(data['expected_q'], (1, batch_size_replay))
         # values used from delayed network (target network)
-        q_target = torch.reshape(data['tar_q'], (1, batch_size_replay))
+        q_target = torch.reshape(data['targ_q'], (1, batch_size_replay))
         rew = torch.reshape(data['rew'], (1, batch_size_replay))
         # π(a|s_t) values from current policy
         # note: the states are the same as used for q_values
@@ -183,14 +183,14 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # target_q: tensor of shape (batch_size_replay, batch_size_policy)
     # cur_logp: tensor of shape (batch_size_replay, batch_size_policy)
     def compute_pi_loss(data, data_mu, data_sig):
-        target_q = data['tar_q_batch']
+        target_q = torch.squeeze(data['targ_q_batch'])
         cur_logp = torch.squeeze(data['cur_logp'], dim=-1)
         eta.requires_grad = False
         exp_q_eta = torch.exp(target_q / eta)
 
-        lagr_mult_mu, _ = compute_eta_mu(data_mu,
+        lagr_mult_mu, _ = compute_eta_mu(data['data_mu'],
                                          eta_grad_collect=False, pi_grad_collect=True)
-        lagr_mult_sig, _ = compute_eta_sig(data_sig,
+        lagr_mult_sig, _ = compute_eta_sig(data['data_sig'],
                                            eta_grad_collect=False, pi_grad_collect=True)
         res = torch.mean(torch.mean(cur_logp * exp_q_eta, dim=-1), dim=-1)
         eta.requires_grad = True
@@ -248,7 +248,7 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         pi_optimizer.zero_grad()
         pi_data = data['pi']
         loss_pi, pi_info = compute_pi_loss(
-            pi_data, pi_data['cur_mu_all'], pi_data['cur_sig_all'])
+            pi_data, pi_data['cur_mu'], pi_data['cur_sig'])
         print("pi:" + str(loss_pi))
         loss_pi.backward()
 
@@ -262,52 +262,38 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     def prep_data(samples):
 
-        # storage for actions from target network for each state in samples
-        tar_act_samples = np.zeros((batch_size_replay,
-                                    batch_size_policy,
-                                    action_dim),
-                                   dtype=np.float32)
-
-        # for each state in samples get actions from target network to
-        # estimate integrals
-        for i, s in enumerate(samples['state']):
-            s = torch.reshape(torch.tensor(s).repeat(batch_size_policy),
-                              (batch_size_policy, state_dim[0]))
-            tar_act, _, _, _ = ac_targ.pi.forward(s)
-            tar_act_samples[i, :, :] = tar_act
+        states = torch.tensor(samples['state'])
+        targ_mu, targ_cov = ac_targ.pi.forward(states)
+        targ_act_samples, _ = ac_targ.pi.get_act(targ_mu, targ_cov, batch_size_policy)
 
         # get Q values for samples from current Q function
         # get Q values from target Q function
-        tar_act_samples = torch.tensor(tar_act_samples)
+        targ_act_samples = torch.tensor(targ_act_samples, requires_grad=False)
         states = torch.tensor(samples['state']).repeat(batch_size_policy, 1)
-        states = torch.reshape(states,
-                               (batch_size_replay, batch_size_policy, state_dim[0]))
-        tar_q_batch = ac_targ.q.forward(states, tar_act_samples)
-
+        targ_q_batch = ac_targ.q.forward(states, targ_act_samples)
+        targ_q_batch = torch.reshape(targ_q_batch,
+                                     (batch_size_replay, batch_size_policy, 1))
         # get target and current policy parameters for samples
 
-        _, _, tar_mu, tar_sig = ac_targ.pi.forward(samples['state'])
-        _, _, cur_mu, cur_sig = ac.pi.forward(samples['state'])
+        cur_mu, cur_cov = ac.pi.forward(samples['state'])
 
         # for estimating policy loss
-        cur_logp, cur_mu_all, cur_sig_all = ac.pi.get_prob(states, tar_act_samples)
-
+        cur_act_samples, cur_logp = ac.pi.get_act(cur_mu, cur_cov, batch_size_policy)
+        cur_logp = torch.reshape(cur_logp, (batch_size_replay,batch_size_policy, 1))
         return dict(
             q=ac.q.forward(samples['state'], samples['action']),
-            expected_q=torch.mean(tar_q_batch, dim=-1),
-            tar_q=ac_targ.q.forward(samples['state'], samples['action']),
+            expected_q=torch.mean(targ_q_batch, dim=-2),
+            targ_q=ac_targ.q.forward(samples['state'], samples['action']),
             rew=torch.tensor(samples['reward']),
-            pi=torch.squeeze(torch.exp(ac_targ.pi.get_prob(
-                samples['state'], samples['action'])[0]), -1),
-            b=torch.tensor(torch.exp(samples['pi_logp'])),
-            tar_q_batch=tar_q_batch,
-            tar_mu=tar_mu,
-            tar_sig=tar_sig,
+            pi=torch.squeeze(torch.exp(
+                ac_targ.pi.get_prob(targ_mu, targ_cov, samples['action']))),
+            b=torch.exp(samples['pi_logp']),
+            targ_q_batch=targ_q_batch,
+            targ_mu=targ_mu,
+            targ_sig=targ_cov,
             cur_mu=cur_mu,
-            cur_sig=cur_sig,
+            cur_sig=cur_cov,
             cur_logp=cur_logp,
-            cur_mu_all=cur_mu_all,
-            cur_sig_all=cur_sig_all,
         )
 
     def get_action(state, deterministic=False):
@@ -362,21 +348,31 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
             all_data = prep_data(samples)
             data['q'] = all_data
-            data['eta'] = all_data['tar_q_batch']
+            data['eta'] = all_data['targ_q_batch']
             data['eta_lagr_sig'] = dict(
-                tar_sig=all_data['tar_sig'],
+                tar_sig=all_data['targ_sig'],
                 cur_sig=all_data['cur_sig'],
             )
             data['eta_lagr_mu'] = dict(
                 cur_sig=all_data['cur_sig'],
-                tar_mu=all_data['tar_mu'],
+                tar_mu=all_data['targ_mu'],
                 cur_mu=all_data['cur_mu'],
             )
             data['pi'] = dict(
-                tar_q_batch=all_data['tar_q_batch'],
+                targ_q_batch=all_data['targ_q_batch'],
                 cur_logp=all_data['cur_logp'],
-                cur_sig_all=all_data['cur_sig_all'],
-                cur_mu_all=all_data['cur_mu_all'],
+                cur_mu=all_data['cur_mu'],
+                cur_sig=all_data['cur_sig'],
+                data_mu=dict(
+                    cur_sig=all_data['cur_sig'],
+                    tar_mu=all_data['targ_mu'],
+                    cur_mu=all_data['cur_mu'],
+
+                ),
+                data_sig=dict(
+                    tar_sig=all_data['targ_sig'],
+                    cur_sig=all_data['cur_sig'],
+                ),
             )
 
             # perform gradient descent step

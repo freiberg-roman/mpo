@@ -31,8 +31,6 @@ class GaussianMLPActor(nn.Module):
 
         # layer outputs the mean of action
         self.mu_layer = nn.Linear(hidden_sizes[-1], act_dim)
-        # layer outputs log cholensky matrix in vector form which is used to
-        # calculate covariance of policy
         self.std_layer = nn.Linear(hidden_sizes[-1], act_dim)
 
     def forward(self, state, deterministic=False, with_logprob=True):
@@ -42,9 +40,10 @@ class GaussianMLPActor(nn.Module):
             mu = self.mu_layer(net_out)
             std = self.std_layer(net_out)
             soft_plus_std = torch.log(torch.exp(std) + 1)
+            covariance = soft_plus_std ** 2
 
             # distribution
-            pi_distribution = Normal(mu, soft_plus_std)
+            pi_distribution = Normal(mu, covariance)
             if deterministic:
                 pi_action = mu
             else:
@@ -55,7 +54,7 @@ class GaussianMLPActor(nn.Module):
             else:
                 logp_pi = None
 
-            return pi_action, logp_pi, mu, soft_plus_std
+            return pi_action, logp_pi, mu, covariance
 
     def get_prob(self, state, action):
         # parameters from net
@@ -63,10 +62,11 @@ class GaussianMLPActor(nn.Module):
         mu = self.mu_layer(net_out)
         std = self.std_layer(net_out)
         soft_plus_std = torch.log(torch.exp(std) + 1)
+        covariance = soft_plus_std ** 2
 
         # distribution
-        pi_distribution = Normal(mu, soft_plus_std)
-        return pi_distribution.log_prob(action)
+        pi_distribution = Normal(mu, covariance)
+        return pi_distribution.log_prob(action), mu, covariance
 
 
 

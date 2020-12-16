@@ -47,10 +47,10 @@ class ReplayBuffer:
 
 
 def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
-        replay_size=int(1e6), gamma=0.99, max_traj=100000, traj_update_count=500,
+        replay_size=int(1e6), gamma=0.99, max_traj=100000, traj_update_count=50,
         max_ep_len=1000, eps=0.1, eps_mu=0.1, eps_sig=0.0001, lr=0.0005,
         alpha=0.1, batch_size_replay=100, batch_size_policy=100, init_eta=10.0,
-        init_eta_mu=10.0, init_eta_sigma=100.0, update_target_after=50,
+        init_eta_mu=10.0, init_eta_sigma=100.0, update_target_after=1000,
         num_test_episodes=10, logger_kwargs=dict(), save_freq=1):
     logger = EpochLogger(**logger_kwargs)
     logger.save_config(locals())
@@ -105,7 +105,7 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # note: the states are the same as used for q_values
         expected_q = torch.reshape(data['expected_q'], (1, batch_size_replay))
         # values used from delayed network (target network)
-        q_target = torch.reshape(data['tar_q'], (1,batch_size_replay))
+        q_target = torch.reshape(data['tar_q'], (1, batch_size_replay))
         rew = torch.reshape(data['rew'], (1, batch_size_replay))
         # π(a|s_t) values from current policy
         # note: the states are the same as used for q_values
@@ -129,51 +129,77 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # assume that all target_sigma_values and current_sigma_values are of shape
     # [B, [n,]] where B is the batch size for integral estimation and [n,] is the
     # diagonal covariance matrices
-    def compute_eta_sig(data):
+    def compute_eta_sig(data, eta_grad_collect=True, pi_grad_collect=False):
         target_sigma = data['tar_sig']
         current_sigma = data['cur_sig']
-        torch.squeeze(target_sigma, -1)
-        torch.squeeze(current_sigma, -1)
         assert target_sigma.shape == current_sigma.shape
 
-        n = target_sigma.shape[1]  # double check this one
-        combined_trace = torch.sum(1 / current_sigma * target_sigma,
-                                   dim=1)
-        target_det = torch.prod(target_sigma, dim=1)
-        current_det = torch.prod(current_sigma, dim=1)
-        log_det = torch.log(current_det / target_det)
-        c_sig = 0.5 * torch.mean(combined_trace - n + log_det)
-        return eta_sig * (eps_sig - c_sig), dict(EtaSig=eta_sig.detach().numpy())
+        if eta_grad_collect == True and pi_grad_collect == False:
+
+            n = target_sigma.shape[1]  # double check this one
+            combined_trace = torch.sum(1 / current_sigma.detach() * target_sigma,
+                                       dim=1)
+            target_det = torch.prod(target_sigma, dim=1)
+            current_det = torch.prod(current_sigma.detach(), dim=1)
+            log_det = torch.log(current_det / target_det)
+            c_sig = 0.5 * torch.mean(combined_trace - n + log_det)
+            res = eta_sig * (eps_sig - c_sig)
+        elif eta_grad_collect == False and pi_grad_collect == True:
+
+            n = target_sigma.shape[1]  # double check this one
+            combined_trace = torch.sum(1 / current_sigma * target_sigma,
+                                       dim=1)
+            target_det = torch.prod(target_sigma, dim=1)
+            current_det = torch.prod(current_sigma, dim=1)
+            log_det = torch.log(current_det / target_det)
+            c_sig = 0.5 * torch.mean(combined_trace - n + log_det)
+            res = eta_sig.detach() * (eps_sig - c_sig)
+
+        return res, dict(EtaSig=eta_sig.detach().numpy())
 
     # same idea as in previous function
-    def compute_eta_mu(data):
+    def compute_eta_mu(data, eta_grad_collect=True, pi_grad_collect=False):
         current_sigma = data['cur_sig']
         current_mu = data['cur_mu']
         target_mu = data['tar_mu']
+        target_mu = torch.squeeze(target_mu, dim=-1)
         current_sigma = torch.squeeze(current_sigma, dim=-1)
         current_mu = torch.squeeze(current_mu, dim=-1)
-        target_mu = torch.squeeze(target_mu, dim=-1)
         assert current_mu.shape == target_mu.shape == current_sigma.shape
 
-        dif = target_mu - current_mu
-        c_mu = 0.5 * torch.mean(torch.sum(dif ** 2 * current_sigma, dim=-1))
-        return eta_mu * (eps_mu - c_mu), dict(EtaMu=eta_mu.detach().numpy())
+        if eta_grad_collect == True and pi_grad_collect == False:
+            dif = target_mu - current_mu.detach()
+            c_mu = 0.5 * torch.mean(torch.sum((dif ** 2) * current_sigma.detach(), dim=-1))
+            res = eta_mu * (eps_mu - c_mu)
+        elif eta_grad_collect == False and pi_grad_collect == True:
+            dif = target_mu - current_mu
+            c_mu = 0.5 * torch.mean(torch.sum((dif ** 2) * current_sigma, dim=-1))
+            res = eta_mu.detach() * (eps_mu - c_mu)
+        else:
+            raise ValueError("Should be not possible")
+
+        return res, dict(EtaMu=eta_mu.detach().numpy())
 
     # target_q: tensor of shape (batch_size_replay, batch_size_policy)
     # cur_logp: tensor of shape (batch_size_replay, batch_size_policy)
-    def compute_pi_loss(data):
-        target_q = data['tar_q']
-        cur_logp = data['cur_logp']
+    def compute_pi_loss(data, data_mu, data_sig):
+        target_q = data['tar_q_batch']
+        cur_logp = torch.squeeze(data['cur_logp'], dim=-1)
         eta.requires_grad = False
         exp_q_eta = torch.exp(target_q / eta)
 
-        res = torch.mean(torch.mean(cur_logp * exp_q_eta, 1))
+        lagr_mult_mu, _ = compute_eta_mu(data_mu,
+                                         eta_grad_collect=False, pi_grad_collect=True)
+        lagr_mult_sig, _ = compute_eta_sig(data_sig,
+                                           eta_grad_collect=False, pi_grad_collect=True)
+        res = torch.mean(torch.mean(cur_logp * exp_q_eta, dim=-1), dim=-1)
         eta.requires_grad = True
-        return res, dict(PiLoss=res.detach().numpy())
+        return res + lagr_mult_mu + lagr_mult_sig, dict(PiLoss=res.detach().numpy())
 
     q_optimizer = Adam(ac.q.parameters(), lr=lr)
     eta_optimizer = Adam([eta], lr=lr)
-    eta_lagr_optimizer = Adam([eta_mu, eta_sig], lr=lr)
+    eta_lagr_mu_optimizer = Adam([eta_mu], lr=lr)
+    eta_lagr_sig_optimizer = Adam([eta_sig], lr=lr)
     pi_optimizer = Adam(ac.pi.parameters(), lr=lr)
 
     logger.setup_pytorch_saver(ac)
@@ -183,6 +209,7 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         q_optimizer.zero_grad()
         q_data = data['q']
         loss_q, q_info = compute_loss_q(q_data)
+        print("Q:" + str(loss_q))
         loss_q.backward()
         q_optimizer.step()
 
@@ -193,6 +220,7 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         eta_optimizer.zero_grad()
         eta_data = data['eta']
         loss_eta, eta_info = compute_eta(eta_data)
+        print("eta:" + str(loss_eta))
         loss_eta.backward()
         eta_optimizer.step()
 
@@ -200,15 +228,17 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.store(LossEta=loss_eta, **eta_info)
 
         # gradient step for eta_mu and eta_sig
-        eta_lagr_optimizer.zero_grad()
+        eta_lagr_mu_optimizer.zero_grad()
         eta_lagr_mu_data = data['eta_lagr_mu']
         loss_eta_lagr_mu, mu_info = compute_eta_mu(eta_lagr_mu_data)
+        print("eta_lagr_mu:" + str(loss_eta_lagr_mu))
         loss_eta_lagr_mu.backward()
 
+        eta_lagr_sig_optimizer.zero_grad()
         eta_lagr_sig_data = data['eta_lagr_sig']
         loss_eta_lagr_sig, sig_info = compute_eta_sig(eta_lagr_sig_data)
+        print("eta_lagr_sig:" + str(loss_eta_lagr_sig))
         loss_eta_lagr_sig.backward()
-        eta_lagr_optimizer.step()
 
         # logger
         logger.store(LossEtaMu=loss_eta_lagr_mu, **mu_info)
@@ -217,12 +247,18 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # gradient step for policy
         pi_optimizer.zero_grad()
         pi_data = data['pi']
-        loss_pi, pi_info = compute_pi_loss(pi_data)
+        loss_pi, pi_info = compute_pi_loss(
+            pi_data, pi_data['cur_mu_all'], pi_data['cur_sig_all'])
+        print("pi:" + str(loss_pi))
         loss_pi.backward()
+
+        eta_lagr_mu_optimizer.step()
+        eta_lagr_sig_optimizer.step()
         pi_optimizer.step()
 
         # logger
         logger.store(LossPi=loss_pi, **pi_info)
+        print("=" * 100)
 
     def prep_data(samples):
 
@@ -250,17 +286,11 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # get target and current policy parameters for samples
 
-        for p in ac.parameters():
-            p.requires_grad = False
-
         _, _, tar_mu, tar_sig = ac_targ.pi.forward(samples['state'])
         _, _, cur_mu, cur_sig = ac.pi.forward(samples['state'])
 
-        for p in ac.parameters():
-            p.requires_grad = True
-
         # for estimating policy loss
-        cur_logp = ac.pi.get_prob(states, tar_act_samples)
+        cur_logp, cur_mu_all, cur_sig_all = ac.pi.get_prob(states, tar_act_samples)
 
         return dict(
             q=ac.q.forward(samples['state'], samples['action']),
@@ -268,7 +298,7 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             tar_q=ac_targ.q.forward(samples['state'], samples['action']),
             rew=torch.tensor(samples['reward']),
             pi=torch.squeeze(torch.exp(ac_targ.pi.get_prob(
-                samples['state'], samples['action'])), -1),
+                samples['state'], samples['action'])[0]), -1),
             b=torch.tensor(torch.exp(samples['pi_logp'])),
             tar_q_batch=tar_q_batch,
             tar_mu=tar_mu,
@@ -276,6 +306,8 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             cur_mu=cur_mu,
             cur_sig=cur_sig,
             cur_logp=cur_logp,
+            cur_mu_all=cur_mu_all,
+            cur_sig_all=cur_sig_all,
         )
 
     def get_action(state, deterministic=False):
@@ -341,11 +373,14 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 cur_mu=all_data['cur_mu'],
             )
             data['pi'] = dict(
-                tar_q=all_data['tar_q_batch'],
+                tar_q_batch=all_data['tar_q_batch'],
                 cur_logp=all_data['cur_logp'],
+                cur_sig_all=all_data['cur_sig_all'],
+                cur_mu_all=all_data['cur_mu_all'],
             )
 
             # perform gradient descent step
+            print(k)
             update(data)
 
         # update target parameters

@@ -46,15 +46,15 @@ class GaussianMLPActor(nn.Module):
         return logp
 
     def get_act(self, mu, covariance, n, deterministic=False):
-        mu = mu.clone().detach().requires_grad_(True)
-        covariance = covariance.clone().detach().requires_grad_(True)
+        mu = mu.clone()
+        covariance = covariance.clone()
 
         if deterministic:
-            return torch.squeeze(mu.repeate(n, 1))
+            return mu.repeat(n, 1), None
 
         mu = mu.repeat(n, 1)
         covariance = covariance.repeat(n, 1)
-        pi_distribution = Normal(mu, covariance)
+        pi_distribution = Normal(mu, covariance) # torch independant
         actions = pi_distribution.rsample()
         return actions, pi_distribution.log_prob(actions)
 
@@ -84,6 +84,6 @@ class MLPActorCritic(nn.Module):
 
     def act(self, obs, deterministic=False):
         with torch.no_grad():
-            mu, cov = self.pi(obs)
+            mu, cov = self.pi(torch.squeeze(obs))
             a, logp_pi = self.pi.get_act(mu, cov, 1, deterministic=deterministic)
             return a.numpy(), logp_pi

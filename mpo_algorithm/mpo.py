@@ -10,6 +10,7 @@ from mpo_algorithm.retrace import Retrace
 
 local_device = "cuda:0"
 
+
 class ReplayBuffer:
     """
     Simple FIFO replay buffer for MPO
@@ -48,45 +49,72 @@ class ReplayBuffer:
                                    device=local_device) for k, v in batch.items()}
 
 
-def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
-        replay_size=int(1e6), gamma=0.99, epochs=2000, traj_update_count=20,
-        max_ep_len=1000, eps=0.1, eps_mu=0.1, eps_sig=0.0001, lr=0.0005,
-        alpha=0.1, batch_size_replay=128, batch_size_policy=1024, init_eta=10.0,
-        init_eta_mu=25.0, init_eta_sigma=25.0, update_target_after=1000,
-        num_test_episodes=10, logger_kwargs=dict(), save_freq=1):
+def mpo(env_fn,
+        actor_critic=core.MLPActorCritic,
+        ac_kwargs=dict(),
+        seed=0,
+        replay_size=int(1e6),
+        gamma=0.99,
+        epochs=2000,
+        traj_update_count=20,
+        max_ep_len=1000,
+        eps=0.1,
+        eps_mu=0.1,
+        eps_sig=0.0001,
+        lr=0.0005,
+        alpha=0.1,
+        batch_size_replay=128,
+        batch_size_policy=1024,
+        init_eta=10.0,
+        init_eta_mu=25.0,
+        init_eta_sigma=25.0,
+        update_target_after=1000,
+        num_test_episodes=10,
+        logger_kwargs=dict(),
+        save_freq=1):
     logger = EpochLogger(**logger_kwargs)
     logger.save_config(locals())
     max_traj = epochs * traj_update_count
 
+    # seeds for testing
     torch.manual_seed(seed)
     np.random.seed(seed)
 
+    # environment parameters
     env, test_env = env_fn(), env_fn()
     state_dim = env.observation_space.shape
     action_dim = env.action_space.shape[0]
 
-    torch.autograd.set_detect_anomaly(True)
+    # this will slow down computation by 10-20 percent.
+    # Only use for debugging
+    # torch.autograd.set_detect_anomaly(True)
 
     # create actor-critic module and target networks
     if ac_kwargs is not dict():
         hid_q = ac_kwargs['hidden_sizes_q']
         hid_pi = ac_kwargs['hidden_sizes_pi']
     else:
-        hid_q = (200, 200)
-        hid_pi = (100, 100)
-    ac = actor_critic(env.observation_space, env.action_space,
-                      hidden_sizes_q=hid_q, hidden_sizes_pi=hid_pi)
+        hid_q = (256, 256)
+        hid_pi = (128, 128)
+    ac = actor_critic(env.observation_space,
+                      env.action_space,
+                      hidden_sizes_q=hid_q,
+                      hidden_sizes_pi=hid_pi)
     ac_targ = deepcopy(ac)
 
-    # setting up values where gradient is required
-    eta = torch.tensor([init_eta], requires_grad=True, device=local_device)
+    # setting up lagrange values where gradient is required
+    eta = torch.tensor([init_eta],
+                       requires_grad=True,
+                       device=local_device)
     eta_sig = torch.tensor([init_eta_sigma],
-                           requires_grad=True, device=local_device)
+                           requires_grad=True,
+                           device=local_device)
     eta_mu = torch.tensor([init_eta_mu],
-                          requires_grad=True, device=local_device)
+                          requires_grad=True,
+                          device=local_device)
 
     # no update for target network with respect to optimizers (copied after k
-    # gradient descent steps)
+    # optimizer steps)
     for p in ac_targ.parameters():
         p.requires_grad = False
 
@@ -97,12 +125,8 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     var_counts = tuple(core.count_vars(module) for module in [ac.pi, ac.q])
     logger.log('\nNumber of parameters: \t pi: %d, \t q: %d\n' % var_counts)
 
-    # loss for q function will be computed with retrace implementation provided
-    # by Denis Bless
-    # the implementation provides multiple batches of trajectories
-    # only one will be used here
-    # result: L(φ) for computing ∂φ L'(φ) (Q function gradient)
     def compute_loss_q(data):
+        # retrace implementation provided by denis bless
         q = torch.reshape(data['q'], (1, batch_size_replay))
         # 𝔼_π Q(s_t,.) is estimated with values samples by policy i.e
         # 1/batch_size_policy * sum(Q(s_t,a_pi)) over a_pi in batch
@@ -118,23 +142,26 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # behaviour policy values b(a|s_t) are emulated by using old values
         # in replay buffer
         behaviour_policy_prob = torch.reshape(data['b'], (1, batch_size_replay))
+
         retrace = Retrace()
+        return retrace(q,
+                       expected_q,
+                       q_target,
+                       rew,
+                       target_pi_prob,
+                       behaviour_policy_prob,
+                       gamma)
 
-        q_info = dict(QVals=q.detach().cpu().numpy())
-        return retrace(q, expected_q, q_target, rew, target_pi_prob,
-                       behaviour_policy_prob, gamma), q_info
-
-    # computes function g(eta)
-    # q_values: tensor of shape (batch_size_replay, batch_size_policy)
     def compute_eta(q_values):
+        # q_values: tensor of shape (batch_size_replay, batch_size_policy)
         return eps * eta + eta * torch.mean(torch.mean(
-            torch.exp(q_values / eta), 1  # first mean on batch_size_policy
-        )), dict(Eta=eta.detach().cpu().numpy())  # then mean on batch_size_replay
+            torch.exp(q_values / eta), 1  # first mean on policy
+        ))  # then mean on batch
 
-    # assume that all target_sigma_values and current_sigma_values are of shape
-    # [B, [n,]] where B is the batch size for integral estimation and [n,] is the
-    # diagonal covariance matrices
     def compute_lagr_loss(eta_mu, eta_sig, data):
+        # assume that all target_sigma_values and current_sigma_values are of shape
+        # [B, [n,]] where B is the batch size for integral estimation and [n,] is the
+        # diagonal covariance matrices
         target_sigma = data['tar_sig']
         current_sigma = data['cur_sig']
         current_mu = data['cur_mu']
@@ -151,20 +178,21 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         dif = target_mu - current_mu
         c_mu = 0.5 * torch.mean(torch.sum((dif ** 2) * current_sigma, dim=-1))
         lagr_eta_mu = eta_mu * (eps_mu - c_mu)
+        res = lagr_eta_mu + lagr_eta_sig
+        return res
 
-        return lagr_eta_mu + lagr_eta_sig, dict()
-
-    # target_q: tensor of shape (batch_size_replay, batch_size_policy)
-    # cur_logp: tensor of shape (batch_size_replay, batch_size_policy)
     def compute_pi_loss(data, lagr):
+        # target_q: tensor of shape (batch_size_replay, batch_size_policy)
         target_q = torch.squeeze(data['targ_q_batch'])
+        # cur_logp: tensor of shape (batch_size_replay, batch_size_policy)
         cur_logp = torch.squeeze(data['cur_logp'], dim=-1)
         eta.requires_grad = False
         exp_q_eta = torch.exp(target_q / eta)
         res = torch.mean(torch.mean(cur_logp * exp_q_eta, dim=-1), dim=-1)
         eta.requires_grad = True
-        return -(res + lagr), dict(PiLoss=res.detach().cpu().numpy())
+        return -(res + lagr)
 
+    # setting up Adam Optimizer for gradient descent with momentum
     q_optimizer = Adam(ac.q.parameters(), lr=lr)
     eta_optimizer = Adam([eta], lr=lr)
     eta_lagr_optimizer = Adam([eta_mu, eta_sig], lr=lr)
@@ -173,45 +201,41 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     logger.setup_pytorch_saver(ac)
 
     def update(data):
-        # gradient step for q function
+        # update for Q function
         q_optimizer.zero_grad()
         q_data = data['q']
-        loss_q, q_info = compute_loss_q(q_data)
+        loss_q = compute_loss_q(q_data)
         loss_q.backward()
         q_optimizer.step()
 
-        # logger
-        logger.store(LossQ=loss_q.item(), **q_info)
-
-        # gradient step for eta
+        # update for eta
         eta_optimizer.zero_grad()
         eta_data = data['eta']
-        loss_eta, eta_info = compute_eta(eta_data)
+        loss_eta = compute_eta(eta_data)
         loss_eta.backward()
         eta_optimizer.step()
 
-        # logger
+        # update for policies
         pi_optimizer.zero_grad()
         cur_mu, cur_cov = ac.pi.forward(data['states'])
 
+        # estimating policy loss
+        cur_act_samples, cur_logp = ac.pi.get_act(cur_mu,
+                                                  cur_cov,
+                                                  batch_size_policy)
+        cur_logp = torch.reshape(cur_logp,
+                                 (batch_size_replay, batch_size_policy, 1))
 
-        # for estimating policy loss
-        cur_act_samples, cur_logp = ac.pi.get_act(cur_mu, cur_cov, batch_size_policy)
-        cur_logp = torch.reshape(cur_logp, (batch_size_replay, batch_size_policy, 1))
-        logger.store(LossEta=loss_eta, **eta_info)
-
-        # gradient step for eta_mu and eta_sig
+        # update for lagrange values
         eta_lagr_optimizer.zero_grad()
         eta_lagr_data_no_grad = data['eta_lagr_no_grad']
         eta_lagr_data_no_grad['cur_mu'] = cur_mu.clone().detach()
         eta_lagr_data_no_grad['cur_sig'] = cur_cov.clone().detach()
-        loss_eta_lagr, _ = compute_lagr_loss(
+        loss_eta_lagr = compute_lagr_loss(
             eta_mu, eta_sig, eta_lagr_data_no_grad)
-
         loss_eta_lagr.backward()
         eta_lagr_optimizer.step()
 
-        # calculate policy gradient
         pi_data = data['pi']
         pi_data['cur_sig'] = cur_cov.clone()
         pi_data['cur_mu'] = cur_mu.clone()
@@ -219,23 +243,31 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         eta_lagr_data = data['eta_lagr']
         eta_lagr_data['cur_mu'] = cur_mu.clone()
         eta_lagr_data['cur_sig'] = cur_cov.clone()
-        loss_eta_lagr, _ = compute_lagr_loss(
-            eta_mu.detach(), eta_sig.detach(), data['eta_lagr']
+        loss_eta_lagr = compute_lagr_loss(
+            eta_mu.detach(),
+            eta_sig.detach(),
+            data['eta_lagr']
         )
-        loss_pi, pi_info = compute_pi_loss(pi_data, loss_eta_lagr)
-
+        loss_pi = compute_pi_loss(pi_data, loss_eta_lagr)
         loss_pi.backward()
         pi_optimizer.step()
 
         # logger
-        logger.store(LossPi=loss_pi.item(), **pi_info)
+        logger.store(LossQ=loss_q.item())
+        logger.store(LossEta=loss_eta.item(), Eta=eta.item())
+        logger.store(LossPi=loss_pi.item())
+        logger.store(LossLagr=loss_eta_lagr.item())
+        logger.store(EtaMu=eta_mu.item())
+        logger.store(EtaSig=eta_sig.item())
 
     def prep_data(samples):
 
         states = samples['state']
         with torch.no_grad():
             targ_mu, targ_cov = ac_targ.pi.forward(states)
-            targ_act_samples, _ = ac_targ.pi.get_act(targ_mu, targ_cov, batch_size_policy)
+            targ_act_samples, _ = ac_targ.pi.get_act(targ_mu,
+                                                     targ_cov,
+                                                     batch_size_policy)
 
         # get Q values for samples from current Q function
         # get Q values from target Q function
@@ -261,7 +293,9 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     def get_action(state, deterministic=False):
         action, logp_pi = ac.act(
-            torch.as_tensor(state, dtype=torch.float32, device=local_device),
+            torch.as_tensor(state,
+                            dtype=torch.float32,
+                            device=local_device),
             deterministic=deterministic)
         return action, logp_pi
 
@@ -270,7 +304,8 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             s, d, ep_ret, ep_len = test_env.reset(), False, 0, 0
             while not (d or (ep_len == max_ep_len)):
                 with torch.no_grad():
-                    s, r, d, _ = test_env.step(get_action(s, deterministic=True)[0])
+                    s, r, d, _ = test_env.step(
+                        get_action(s, deterministic=True)[0])
                 ep_ret += r
                 ep_len += 1
             logger.store(TestEpRet=ep_ret, TestEpLen=ep_len)
@@ -282,7 +317,8 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     performed_trajectories = 0
     while performed_trajectories < max_traj:
 
-        # sample trajectories from environment to update replay buffer
+        # sample trajectories from environment
+        # and safe in replay buffer
         for _ in range(traj_update_count):
 
             # sample steps
@@ -342,12 +378,21 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # Log all relevant information
         logger.log_tabular('Performed Trajectories', performed_trajectories)
+        logger.log_tabular('TestEpLen', with_min_and_max=True)
         logger.log_tabular('TestEpRet', with_min_and_max=True)
 
         logger.log_tabular('LossQ', with_min_and_max=True)
+        logger.log_tabular('LossEta', with_min_and_max=True)
+        logger.log_tabular('LossPi', with_min_and_max=True)
+        logger.log_tabular('LossLagr', with_min_and_max=True)
+
+        logger.log_tabular('EtaMu', with_min_and_max=True)
+        logger.log_tabular('EtaSig', with_min_and_max=True)
+        logger.log_tabular('Eta', with_min_and_max=True)
 
         logger.log_tabular('Time', time.time() - start_time)
         logger.dump_tabular()
+        start_time = time.time()
 
 
 if __name__ == '__main__':
@@ -369,8 +414,12 @@ if __name__ == '__main__':
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
 
     torch.set_num_threads(torch.get_num_threads())
-    mpo(lambda: gym.make(args.env), actor_critic=core.MLPActorCritic,
+    mpo(lambda: gym.make(args.env),
+        actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes_q=[args.hid_q] * args.l,
                        hidden_sizes_pi=[args.hid_pi] * args.l),
-        gamma=args.gamma, seed=args.seed, epochs=args.epochs,
-        logger_kwargs=logger_kwargs)
+        gamma=args.gamma,
+        seed=args.seed,
+        epochs=args.epochs,
+        logger_kwargs=logger_kwargs
+        )

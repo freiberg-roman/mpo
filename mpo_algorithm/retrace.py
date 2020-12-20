@@ -3,8 +3,7 @@ import torch
 
 class Retrace:
     def __init__(self):
-        # self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.device = "cpu"
+        self.device = "cuda:0"
 
     def __call__(self,
                  Q,

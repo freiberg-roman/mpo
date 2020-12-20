@@ -79,11 +79,11 @@ class MLPActorCritic(nn.Module):
 
         state_dim = state_space.shape[0]
         action_dim = action_space.shape[0]
-        self.pi = GaussianMLPActor(state_dim, action_dim, hidden_sizes_pi, activation)
-        self.q = MLPQFunction(state_dim, action_dim, hidden_sizes_q, activation)
+        self.pi = GaussianMLPActor(state_dim, action_dim, hidden_sizes_pi, activation).cuda()
+        self.q = MLPQFunction(state_dim, action_dim, hidden_sizes_q, activation).cuda()
 
     def act(self, obs, deterministic=False):
         with torch.no_grad():
             mu, cov = self.pi(torch.squeeze(obs))
             a, logp_pi = self.pi.get_act(mu, cov, 1, deterministic=deterministic)
-            return a.numpy(), logp_pi
+            return a.cpu().numpy(), logp_pi

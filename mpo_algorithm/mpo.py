@@ -8,6 +8,7 @@ from mpo_algorithm import core
 from utils.logx import EpochLogger
 from mpo_algorithm.retrace import Retrace
 
+local_device = "cuda:0"
 
 class ReplayBuffer:
     """
@@ -43,17 +44,19 @@ class ReplayBuffer:
                      reward=self.rew_buf[idxs],
                      pi_logp=self.pi_logp[idxs],
                      done=self.done_buf[idxs])
-        return {k: torch.as_tensor(v, dtype=torch.float32) for k, v in batch.items()}
+        return {k: torch.as_tensor(v, dtype=torch.float32,
+                                   device=local_device) for k, v in batch.items()}
 
 
 def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
-        replay_size=int(1e6), gamma=0.99, max_traj=100000, traj_update_count=20,
+        replay_size=int(1e6), gamma=0.99, epochs=2000, traj_update_count=20,
         max_ep_len=1000, eps=0.1, eps_mu=0.1, eps_sig=0.0001, lr=0.0005,
-        alpha=0.1, batch_size_replay=100, batch_size_policy=100, init_eta=10.0,
+        alpha=0.1, batch_size_replay=128, batch_size_policy=1024, init_eta=10.0,
         init_eta_mu=25.0, init_eta_sigma=25.0, update_target_after=1000,
         num_test_episodes=10, logger_kwargs=dict(), save_freq=1):
     logger = EpochLogger(**logger_kwargs)
     logger.save_config(locals())
+    max_traj = epochs * traj_update_count
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -76,9 +79,11 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     ac_targ = deepcopy(ac)
 
     # setting up values where gradient is required
-    eta = torch.tensor([init_eta], requires_grad=True)
-    eta_sig = torch.tensor([init_eta_sigma], requires_grad=True)
-    eta_mu = torch.tensor([init_eta_mu], requires_grad=True)
+    eta = torch.tensor([init_eta], requires_grad=True, device=local_device)
+    eta_sig = torch.tensor([init_eta_sigma],
+                           requires_grad=True, device=local_device)
+    eta_mu = torch.tensor([init_eta_mu],
+                          requires_grad=True, device=local_device)
 
     # no update for target network with respect to optimizers (copied after k
     # gradient descent steps)
@@ -115,7 +120,7 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         behaviour_policy_prob = torch.reshape(data['b'], (1, batch_size_replay))
         retrace = Retrace()
 
-        q_info = dict(QVals=q.detach().numpy())
+        q_info = dict(QVals=q.detach().cpu().numpy())
         return retrace(q, expected_q, q_target, rew, target_pi_prob,
                        behaviour_policy_prob, gamma), q_info
 
@@ -124,7 +129,7 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     def compute_eta(q_values):
         return eps * eta + eta * torch.mean(torch.mean(
             torch.exp(q_values / eta), 1  # first mean on batch_size_policy
-        )), dict(Eta=eta.detach().numpy())  # then mean on batch_size_replay
+        )), dict(Eta=eta.detach().cpu().numpy())  # then mean on batch_size_replay
 
     # assume that all target_sigma_values and current_sigma_values are of shape
     # [B, [n,]] where B is the batch size for integral estimation and [n,] is the
@@ -158,7 +163,7 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         exp_q_eta = torch.exp(target_q / eta)
         res = torch.mean(torch.mean(cur_logp * exp_q_eta, dim=-1), dim=-1)
         eta.requires_grad = True
-        return -(res + lagr), dict(PiLoss=res.detach().numpy())
+        return -(res + lagr), dict(PiLoss=res.detach().cpu().numpy())
 
     q_optimizer = Adam(ac.q.parameters(), lr=lr)
     eta_optimizer = Adam([eta], lr=lr)
@@ -256,7 +261,7 @@ def mpo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     def get_action(state, deterministic=False):
         action, logp_pi = ac.act(
-            torch.as_tensor(state, dtype=torch.float32, ),
+            torch.as_tensor(state, dtype=torch.float32, device=local_device),
             deterministic=deterministic)
         return action, logp_pi
 
@@ -355,7 +360,7 @@ if __name__ == '__main__':
     parser.add_argument('--l', type=int, default=2)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--seed', '-s', type=int, default=0)
-    parser.add_argument('--max_traj', type=int, default=5000)
+    parser.add_argument('--epochs', type=int, default=5000)
     parser.add_argument('--exp_name', type=str, default='mpo')
     args = parser.parse_args()
 
@@ -367,5 +372,5 @@ if __name__ == '__main__':
     mpo(lambda: gym.make(args.env), actor_critic=core.MLPActorCritic,
         ac_kwargs=dict(hidden_sizes_q=[args.hid_q] * args.l,
                        hidden_sizes_pi=[args.hid_pi] * args.l),
-        gamma=args.gamma, seed=args.seed, max_traj=args.max_traj,
+        gamma=args.gamma, seed=args.seed, epochs=args.epochs,
         logger_kwargs=logger_kwargs)

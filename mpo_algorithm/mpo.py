@@ -56,7 +56,7 @@ def mpo(env_fn,
         replay_size=int(1e6),
         gamma=0.99,
         epochs=2000,
-        traj_update_count=20,
+        traj_update_count=50,
         max_ep_len=1000,
         eps=0.1,
         eps_mu=0.1,
@@ -315,6 +315,7 @@ def mpo(env_fn,
 
     # main loop
     performed_trajectories = 0
+    epoch = 0
     while performed_trajectories < max_traj:
 
         # sample trajectories from environment
@@ -339,7 +340,6 @@ def mpo(env_fn,
                     break
 
         performed_trajectories += traj_update_count
-
         for k in range(update_target_after):
             # collect data
             data = dict()
@@ -374,9 +374,12 @@ def mpo(env_fn,
                 p_targ.data.add_(p)
 
         # after each epoch evaluate performance of agent
+        epoch += 1
+        logger.save_state({'env': env}, None)
         test_agent()
 
         # Log all relevant information
+        logger.log_tabular('Epoch', epoch)
         logger.log_tabular('Performed Trajectories', performed_trajectories)
         logger.log_tabular('TestEpLen', with_min_and_max=True)
         logger.log_tabular('TestEpRet', with_min_and_max=True)
@@ -405,13 +408,13 @@ if __name__ == '__main__':
     parser.add_argument('--l', type=int, default=2)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--seed', '-s', type=int, default=0)
-    parser.add_argument('--epochs', type=int, default=5000)
+    parser.add_argument('--epochs', type=int, default=3)
     parser.add_argument('--exp_name', type=str, default='mpo')
     args = parser.parse_args()
 
     from utils.run_utils import setup_logger_kwargs
 
-    logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
+    logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed, "./", True)
 
     torch.set_num_threads(torch.get_num_threads())
     mpo(lambda: gym.make(args.env),

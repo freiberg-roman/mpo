@@ -9,44 +9,54 @@ from utils.logx import EpochLogger
 from mpo_algorithm.retrace import Retrace
 
 local_device = "cuda:0"
+class TrajtoryBuffer:
+    def __init__(self, state_dim, action_dim, rollout, traj_size):
+        self.s_buf = np.zeros((traj_size, rollout, state_dim),
+                dtype=np.float32)
+        self.action_buf = np.zeros((traj_size, rollout, action_dim),
+                dtype=np.float32)
+        self.rew_buf = np.zeros((traj_size, rollout, 1))
+        self.pi_logp_buf = np.zeros((traj_size, rollout, 1))
 
+        self.ptr_traj, self.ptr_step = 0, 0
+        self.max_traj, self.max_rollout = traj_size, rollout
+        self.size = 0
 
-class ReplayBuffer:
-    """
-    Simple FIFO replay buffer for MPO
-    """
+    def store(self, state, action, reward, pi_logp):
+        self.s_buf[self.ptr_traj, self.ptr_step, :] = state
+        self.action_buf[self.ptr_traj, self.ptr_step, :] = action
+        self.action_buf[self.ptr_traj, self.ptr_step] = reward
+        self.pi_logp_buf[self.ptr_traj, self.ptr_step] = pi_logp
 
-    def __init__(self, s_dim, act_dim, size):
-        # state observed
-        self.s_buf = np.zeros(core.combined_shape(size, s_dim), dtype=np.float32)
-        # action performed for this state
-        self.act_buf = np.zeros(core.combined_shape(size, act_dim), dtype=np.float32)
-        # reward for that state and action
-        self.rew_buf = np.zeros(size, dtype=np.float32)
-        # log(π(a|s)) at the time of selection
-        self.pi_logp = np.zeros(size, dtype=np.float32)
-        self.done_buf = np.zeros(size, dtype=np.float32)
-
-        self.ptr, self.size, self.max_size = 0, 0, size
-
-    def store(self, state, action, reward, pi_prob, done):
-        self.s_buf[self.ptr] = state
-        self.act_buf[self.ptr] = action
-        self.rew_buf[self.ptr] = reward
-        self.pi_logp[self.ptr] = pi_prob
-        self.done_buf[self.ptr] = done
-        self.ptr = (self.ptr + 1) % self.max_size
-        self.size = min(self.size + 1, self.max_size)
+        self.ptr_step += 1
+        if self.ptr_step == self.max_rollout:
+            self.ptr_step = 0
+            self.ptr_traj = (self.ptr_traj + 1) % self.max_traj
+            self.size = min(self.size + 1, self.max_traj)
 
     def sample_batch(self, batch_size=32):
-        idxs = np.random.randint(0, self.size, size=batch_size)
-        batch = dict(state=self.s_buf[idxs],
-                     action=self.act_buf[idxs],
-                     reward=self.rew_buf[idxs],
-                     pi_logp=self.pi_logp[idxs],
-                     done=self.done_buf[idxs])
-        return {k: torch.as_tensor(v, dtype=torch.float32,
-                                   device=local_device) for k, v in batch.items()}
+        idxs = np.random.randint(0, self.size * self.max_rollout,
+                size=batch_size)
+        col, row = idxs // self.size, idxs % self.size
+        batch = dict(
+                state=self.s_buf[row, col],
+                action=self.action_buf[row, col],
+                reward=self.rew_buf[row, col],
+                pi_logp=self.pi_logp_buf[row, col],
+                )
+        return {k: torch.as_tensor(v, dtype=torch.float32, device=local_device) \
+                for k, v in batch.items()}
+
+    def sample_traj(self, traj_batch_size=32):
+        idxs = np.random.randint(0, self.size, size=traj_batch_size)
+        batch = dict(
+                state=self.s_buf[idxs],
+                action=self.action_buf[idxs],
+                reward=self.rew_buf[idxs],
+                pi_logp=self.pi_logp_buf[idxs],
+                )
+        return {k: torch.squeeze(torch.as_tensor(v, dtype=torch.float32, device=local_device)) \
+                for k, v in batch.items()}
 
 
 def mpo(env_fn,
@@ -57,7 +67,7 @@ def mpo(env_fn,
         gamma=0.99,
         epochs=2000,
         traj_update_count=50,
-        max_ep_len=1000,
+        max_ep_len=200,
         eps=0.1,
         eps_mu=0.1,
         eps_sig=0.0001,
@@ -82,7 +92,7 @@ def mpo(env_fn,
 
     # environment parameters
     env, test_env = env_fn(), env_fn()
-    state_dim = env.observation_space.shape
+    state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
     # this will slow down computation by 10-20 percent.
@@ -119,7 +129,7 @@ def mpo(env_fn,
         p.requires_grad = False
 
     # replay buffer
-    replay_buffer = ReplayBuffer(s_dim=state_dim, act_dim=action_dim, size=replay_size)
+    replay_buffer = TrajtoryBuffer(state_dim, action_dim, max_ep_len, 5000)
 
     # counting variables
     var_counts = tuple(core.count_vars(module) for module in [ac.pi, ac.q])
@@ -333,7 +343,7 @@ def mpo(env_fn,
 
                 d = False if ep_len == max_ep_len else d
 
-                replay_buffer.store(s, a, r, logp, d)
+                replay_buffer.store(s, a, r, logp.cpu().numpy())
                 # reset environment if necessary
                 if d or (ep_len == max_ep_len):
                     s, ep_ret, ep_len = env.reset(), 0, 0

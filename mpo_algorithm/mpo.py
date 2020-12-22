@@ -9,12 +9,14 @@ from utils.logx import EpochLogger
 from mpo_algorithm.retrace import Retrace
 
 local_device = "cuda:0"
+
+
 class TrajtoryBuffer:
     def __init__(self, state_dim, action_dim, rollout, traj_size):
         self.s_buf = np.zeros((traj_size, rollout, state_dim),
-                dtype=np.float32)
+                              dtype=np.float32)
         self.action_buf = np.zeros((traj_size, rollout, action_dim),
-                dtype=np.float32)
+                                   dtype=np.float32)
         self.rew_buf = np.zeros((traj_size, rollout, 1))
         self.pi_logp_buf = np.zeros((traj_size, rollout, 1))
 
@@ -27,6 +29,7 @@ class TrajtoryBuffer:
         self.action_buf[self.ptr_traj, self.ptr_step, :] = action
         self.action_buf[self.ptr_traj, self.ptr_step] = reward
         self.pi_logp_buf[self.ptr_traj, self.ptr_step] = pi_logp
+        self.rew_buf[self.ptr_traj, self.ptr_step] = reward
 
         self.ptr_step += 1
         if self.ptr_step == self.max_rollout:
@@ -36,26 +39,26 @@ class TrajtoryBuffer:
 
     def sample_batch(self, batch_size=32):
         idxs = np.random.randint(0, self.size * self.max_rollout,
-                size=batch_size)
+                                 size=batch_size)
         col, row = idxs // self.size, idxs % self.size
         batch = dict(
-                state=self.s_buf[row, col],
-                action=self.action_buf[row, col],
-                reward=self.rew_buf[row, col],
-                pi_logp=self.pi_logp_buf[row, col],
-                )
+            state=self.s_buf[row, col],
+            action=self.action_buf[row, col],
+            reward=self.rew_buf[row, col],
+            pi_logp=self.pi_logp_buf[row, col],
+        )
         return {k: torch.as_tensor(v, dtype=torch.float32, device=local_device) \
                 for k, v in batch.items()}
 
     def sample_traj(self, traj_batch_size=32):
         idxs = np.random.randint(0, self.size, size=traj_batch_size)
         batch = dict(
-                state=self.s_buf[idxs],
-                action=self.action_buf[idxs],
-                reward=self.rew_buf[idxs],
-                pi_logp=self.pi_logp_buf[idxs],
-                )
-        return {k: torch.squeeze(torch.as_tensor(v, dtype=torch.float32, device=local_device)) \
+            state=self.s_buf[idxs],
+            action=self.action_buf[idxs],
+            reward=self.rew_buf[idxs],
+            pi_logp=self.pi_logp_buf[idxs],
+        )
+        return {k: torch.as_tensor(v, dtype=torch.float32, device=local_device) \
                 for k, v in batch.items()}
 
 
@@ -66,7 +69,7 @@ def mpo(env_fn,
         replay_size=int(1e6),
         gamma=0.99,
         epochs=2000,
-        traj_update_count=50,
+        traj_update_count=20,
         max_ep_len=200,
         eps=0.1,
         eps_mu=0.1,
@@ -74,10 +77,10 @@ def mpo(env_fn,
         lr=0.0005,
         alpha=0.1,
         batch_size_replay=128,
-        batch_size_policy=1024,
-        init_eta=10.0,
-        init_eta_mu=25.0,
-        init_eta_sigma=25.0,
+        batch_size_policy=128,
+        init_eta=5.0,
+        init_eta_mu=5.0,
+        init_eta_sigma=5.0,
         update_target_after=1000,
         num_test_episodes=10,
         logger_kwargs=dict(),
@@ -211,13 +214,6 @@ def mpo(env_fn,
     logger.setup_pytorch_saver(ac)
 
     def update(data):
-        # update for Q function
-        q_optimizer.zero_grad()
-        q_data = data['q']
-        loss_q = compute_loss_q(q_data)
-        loss_q.backward()
-        q_optimizer.step()
-
         # update for eta
         eta_optimizer.zero_grad()
         eta_data = data['eta']
@@ -263,43 +259,79 @@ def mpo(env_fn,
         pi_optimizer.step()
 
         # logger
-        logger.store(LossQ=loss_q.item())
         logger.store(LossEta=loss_eta.item(), Eta=eta.item())
         logger.store(LossPi=loss_pi.item())
         logger.store(LossLagr=loss_eta_lagr.item())
         logger.store(EtaMu=eta_mu.item())
         logger.store(EtaSig=eta_sig.item())
 
-    def prep_data(samples):
+    def update_q():
+        q_optimizer.zero_grad()
 
+        traj_batch_size = 2
+        sample_traj = replay_buffer.sample_traj(traj_batch_size=traj_batch_size)
+        curr_q_vals = ac.q.forward(sample_traj['state'], sample_traj['action'])
+        targ_q_vals = ac_targ.q.forward(sample_traj['state'], sample_traj['action'])
+        mu_targ, cov_targ = ac_targ.pi.forward(sample_traj['state'])
+        targ_pol_prob = ac_targ.pi.get_prob(mu_targ, cov_targ, sample_traj['action'])
+
+        expected_q_vals = torch.zeros((traj_batch_size, max_ep_len), device=local_device)
+        for i in range(traj_batch_size):
+            targ_actions, _ = ac_targ.pi.get_act(mu_targ[i, :, :],
+                                                 cov_targ[i, :, :],
+                                                 batch_size_policy,
+                                                 traj=True)
+            states = sample_traj['state'][i, :, :]
+            states = states.repeat(batch_size_policy, 1, 1)
+            expected_q_vals[i, :] = torch.mean(
+                ac_targ.q.forward(states, targ_actions), dim=0)
+
+        retrace = Retrace()
+        loss_q = retrace(curr_q_vals,
+                         expected_q_vals,
+                         targ_q_vals,
+                         torch.squeeze(sample_traj['reward']),
+                         torch.squeeze(targ_pol_prob),
+                         torch.squeeze(sample_traj['pi_logp']),
+                         gamma)
+
+        loss_q.backward()
+        q_optimizer.step()
+        logger.store(LossQ=loss_q.item())
+
+    def prep_data():
+        samples = replay_buffer.sample_batch(batch_size=batch_size_replay)
         states = samples['state']
-        with torch.no_grad():
-            targ_mu, targ_cov = ac_targ.pi.forward(states)
-            targ_act_samples, _ = ac_targ.pi.get_act(targ_mu,
-                                                     targ_cov,
-                                                     batch_size_policy)
+
+        data = dict()
+        data['states'] = states
+
+        targ_mu, targ_cov = ac_targ.pi.forward(states)
+        targ_act_samples, _ = ac_targ.pi.get_act(targ_mu,
+                                                 targ_cov,
+                                                 batch_size_policy,
+                                                 batch=True)
 
         # get Q values for samples from current Q function
         # get Q values from target Q function
-        targ_act_samples = torch.clone(targ_act_samples).detach()
-        states = torch.clone(samples['state']).detach().repeat(batch_size_policy, 1)
+        states = torch.reshape(states, (batch_size_replay, 1, state_dim)).repeat(1, batch_size_policy, 1)
         targ_q_batch = ac_targ.q.forward(states, targ_act_samples)
-        targ_q_batch = torch.reshape(targ_q_batch,
-                                     (batch_size_replay, batch_size_policy, 1))
+        targ_q_batch = torch.reshape(targ_q_batch, (batch_size_replay, batch_size_policy, 1))
 
-        return dict(
-            q=ac.q.forward(samples['state'], samples['action']),
-            expected_q=torch.mean(targ_q_batch, dim=-2),
-            targ_q=ac_targ.q.forward(samples['state'], samples['action']),
-            rew=torch.clone(samples['reward']).detach(),
-            pi=torch.squeeze(torch.exp(
-                ac_targ.pi.get_prob(targ_mu, targ_cov, samples['action']))),
-            b=torch.exp(samples['pi_logp']),
-            targ_q_batch=targ_q_batch,
-            targ_mu=targ_mu,
-            targ_sig=targ_cov,
-            states=samples['state']
+        data['eta'] = targ_q_batch
+        data['eta_lagr_no_grad'] = dict(
+            tar_mu=targ_mu,
+            tar_sig=targ_cov,
         )
+        data['eta_lagr'] = dict(
+            tar_mu=targ_mu,
+            tar_sig=targ_cov,
+        )
+        data['pi'] = dict(
+            targ_q_batch=targ_q_batch,
+        )
+
+        return data
 
     def get_action(state, deterministic=False):
         action, logp_pi = ac.act(
@@ -343,7 +375,8 @@ def mpo(env_fn,
 
                 d = False if ep_len == max_ep_len else d
 
-                replay_buffer.store(s, a, r, logp.cpu().numpy())
+                replay_buffer.store(s.reshape(state_dim), a, r, logp.cpu().numpy())
+                s = s2
                 # reset environment if necessary
                 if d or (ep_len == max_ep_len):
                     s, ep_ret, ep_len = env.reset(), 0, 0
@@ -351,30 +384,10 @@ def mpo(env_fn,
 
         performed_trajectories += traj_update_count
         for k in range(update_target_after):
-            # collect data
-            data = dict()
-
-            # sample (s, a, r, pi_logp, d) from replay buffer
-            samples = replay_buffer.sample_batch(batch_size=batch_size_replay)
-
-            all_data = prep_data(samples)
-            data['q'] = all_data
-            data['eta'] = all_data['targ_q_batch']
-            data['eta_lagr_no_grad'] = dict(
-                tar_mu=all_data['targ_mu'],
-                tar_sig=all_data['targ_sig'],
-            )
-            data['eta_lagr'] = dict(
-                tar_mu=all_data['targ_mu'],
-                tar_sig=all_data['targ_sig'],
-            )
-            data['pi'] = dict(
-                targ_q_batch=all_data['targ_q_batch'],
-            )
-            data['states'] = all_data['states']
 
             # perform gradient descent step
-            update(data)
+            update_q()
+            update(prep_data())
 
         # update target parameters
         # use ugly hack until better option is found

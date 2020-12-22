@@ -45,19 +45,30 @@ class GaussianMLPActor(nn.Module):
         logp = pi_distribution.log_prob(action)
         return logp
 
-    def get_act(self, mu, covariance, n, deterministic=False):
+    def get_act(self, mu, covariance, n, deterministic=False, traj=False, batch=False):
         mu = mu.clone()
         covariance = covariance.clone()
 
         if deterministic:
             return mu.repeat(n, 1), None
 
-        mu = mu.repeat(n, 1)
-        covariance = covariance.repeat(n, 1)
-        pi_distribution = Normal(mu, covariance) # torch independant
+        if traj:
+            mu = torch.reshape(mu, (1, 200, 1))  # I am tiered !!!!! must rework !!!!!!
+            covariance = torch.reshape(covariance, (1, 200, 1))  # I am tiered !!!!! must rework !!!!!!
+            mu = mu.repeat(n, 1, 1)
+            covariance = covariance.repeat(n, 1, 1)
+        elif batch:
+            mu = torch.reshape(mu, (128, 1, 1))  # I am tiered !!!!! must rework !!!!!!
+            covariance = torch.reshape(covariance, (128, 1, 1))  # I am tiered !!!!! must rework !!!!!!
+            mu = mu.repeat(1, n, 1)
+            covariance = covariance.repeat(1, n, 1)
+        else:
+            mu = mu.repeat(n, 1)
+            covariance = covariance.repeat(n, 1)
+
+        pi_distribution = Normal(mu, covariance)
         actions = pi_distribution.rsample()
         return actions, pi_distribution.log_prob(actions)
-
 
 
 class MLPQFunction(nn.Module):

@@ -77,12 +77,12 @@ def mpo(env_fn,
         lr=0.0005,
         alpha=0.1,
         batch_size_replay=128,
-        batch_size_policy=128,
-        init_eta=5.0,
-        init_eta_mu=5.0,
-        init_eta_sigma=5.0,
+        batch_size_policy=64,
+        init_eta=10.0,
+        init_eta_mu=10.0,
+        init_eta_sigma=10.0,
         update_target_after=1000,
-        num_test_episodes=10,
+        num_test_episodes=50,
         logger_kwargs=dict(),
         save_freq=1):
     logger = EpochLogger(**logger_kwargs)
@@ -167,9 +167,9 @@ def mpo(env_fn,
 
     def compute_eta(q_values):
         # q_values: tensor of shape (batch_size_replay, batch_size_policy)
-        return eps * eta + eta * torch.mean(torch.mean(
-            torch.exp(q_values / eta), 1  # first mean on policy
-        ))  # then mean on batch
+        return eps * eta + eta * torch.mean(torch.log(torch.mean(
+            torch.exp(q_values / eta), 1
+        )))
 
     def compute_lagr_loss(eta_mu, eta_sig, data):
         # assume that all target_sigma_values and current_sigma_values are of shape
@@ -181,16 +181,16 @@ def mpo(env_fn,
         target_mu = data['tar_mu']
 
         n = target_sigma.shape[1]
-        combined_trace = torch.sum(1 / current_sigma * target_sigma, dim=1)
+        combined_trace = torch.sum((1 / current_sigma) * target_sigma, dim=1)
         target_det = torch.prod(target_sigma, dim=1)
         current_det = torch.prod(current_sigma, dim=1)
         log_det = torch.log(current_det / target_det)
-        c_sig = 0.5 * torch.mean(combined_trace - n + log_det)
-        lagr_eta_sig = eta_sig * (eps_sig - c_sig)
+        c_mu = 0.5 * torch.mean(combined_trace - n + log_det)
+        lagr_eta_mu = eta_mu * (eps_mu - c_mu)
 
         dif = target_mu - current_mu
-        c_mu = 0.5 * torch.mean(torch.sum((dif ** 2) * current_sigma, dim=-1))
-        lagr_eta_mu = eta_mu * (eps_mu - c_mu)
+        c_sig = 0.5 * torch.mean(torch.sum((dif ** 2) * current_sigma, dim=-1))
+        lagr_eta_sig = eta_sig * (eps_sig - c_sig)
         res = lagr_eta_mu + lagr_eta_sig
         return res
 
@@ -243,15 +243,15 @@ def mpo(env_fn,
         eta_lagr_optimizer.step()
 
         pi_data = data['pi']
-        pi_data['cur_sig'] = cur_cov.clone()
-        pi_data['cur_mu'] = cur_mu.clone()
+        pi_data['cur_sig'] = cur_cov
+        pi_data['cur_mu'] = cur_mu
         pi_data['cur_logp'] = cur_logp
         eta_lagr_data = data['eta_lagr']
-        eta_lagr_data['cur_mu'] = cur_mu.clone()
-        eta_lagr_data['cur_sig'] = cur_cov.clone()
+        eta_lagr_data['cur_mu'] = cur_mu
+        eta_lagr_data['cur_sig'] = cur_cov
         loss_eta_lagr = compute_lagr_loss(
-            eta_mu.detach(),
-            eta_sig.detach(),
+            eta_mu.clone().detach(),
+            eta_sig.clone().detach(),
             data['eta_lagr']
         )
         loss_pi = compute_pi_loss(pi_data, loss_eta_lagr)
@@ -407,14 +407,14 @@ def mpo(env_fn,
         logger.log_tabular('TestEpLen', with_min_and_max=True)
         logger.log_tabular('TestEpRet', with_min_and_max=True)
 
-        logger.log_tabular('LossQ', with_min_and_max=True)
-        logger.log_tabular('LossEta', with_min_and_max=True)
-        logger.log_tabular('LossPi', with_min_and_max=True)
-        logger.log_tabular('LossLagr', with_min_and_max=True)
+        logger.log_tabular('LossQ', with_min_and_max=False)
+        logger.log_tabular('LossEta', with_min_and_max=False)
+        logger.log_tabular('LossPi', with_min_and_max=False)
+        logger.log_tabular('LossLagr', with_min_and_max=False)
 
-        logger.log_tabular('EtaMu', with_min_and_max=True)
-        logger.log_tabular('EtaSig', with_min_and_max=True)
-        logger.log_tabular('Eta', with_min_and_max=True)
+        logger.log_tabular('EtaMu', with_min_and_max=False)
+        logger.log_tabular('EtaSig', with_min_and_max=False)
+        logger.log_tabular('Eta', with_min_and_max=False)
 
         logger.log_tabular('Time', time.time() - start_time)
         logger.dump_tabular()

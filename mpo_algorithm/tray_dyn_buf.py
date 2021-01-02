@@ -27,6 +27,7 @@ class DynamicTrajectoryBuffer:
         self.max_rollout = max_rollout
         self.min_rollout = min_rollout
         self.size_traj = 0
+        self.stored_interactions = 0
 
     def store(self, state, action, reward, pi_logp):
         assert self.ptr_step < self.max_rollout
@@ -44,6 +45,7 @@ class DynamicTrajectoryBuffer:
         assert self.ptr_step >= self.min_rollout
         self.ptr_traj = (self.ptr_traj + 1) % self.max_traj
         self.len_used[self.ptr_traj] = self.ptr_step  # length of this trajectory
+        self.stored_interactions += self.ptr_step
         self.ptr_step = 0
         self.size_traj = min(self.size_traj + 1, self.max_traj)
 

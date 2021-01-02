@@ -7,7 +7,7 @@ import time
 from mpo_algorithm import core
 from utils.logx import EpochLogger
 from mpo_algorithm.retrace import Retrace
-from mpo_algorithm.traj_buf import TrajtoryBuffer
+from mpo_algorithm.tray_dyn_buf import DynamicTrajectoryBuffer
 
 local_device = "cuda:0"
 
@@ -34,8 +34,8 @@ def mpo(env_fn,
         init_eta_sigma=10.0,
         update_target_after=1000,
         num_test_episodes=50,
-        logger_kwargs=dict(),
-        save_freq=1):
+        action_dim=1,
+        logger_kwargs=dict()):
     logger = EpochLogger(**logger_kwargs)
     logger.save_config(locals())
     max_traj = epochs * traj_update_count
@@ -47,7 +47,8 @@ def mpo(env_fn,
     # environment parameters
     env, test_env = env_fn(), env_fn()
     state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.shape[0]
+    # action_dim = env.action_space.shape[0]
+    action_dim = action_dim
 
     # this will slow down computation by 10-20 percent.
     # Only use for debugging
@@ -61,7 +62,7 @@ def mpo(env_fn,
         hid_q = (256, 256)
         hid_pi = (128, 128)
     ac = actor_critic(env.observation_space,
-                      env.action_space,
+                      action_dim,
                       hidden_sizes_q=hid_q,
                       hidden_sizes_pi=hid_pi)
     ac_targ = deepcopy(ac)
@@ -83,8 +84,12 @@ def mpo(env_fn,
         p.requires_grad = False
 
     # replay buffer
-    replay_buffer = TrajtoryBuffer(state_dim, action_dim, max_ep_len, 5000,
-                                   local_device)
+    replay_buffer = DynamicTrajectoryBuffer(state_dim,
+                                            action_dim,
+                                            10,
+                                            max_ep_len,
+                                            5000,
+                                            local_device)
 
     # counting variables
     var_counts = tuple(core.count_vars(module) for module in [ac.pi, ac.q])
@@ -222,17 +227,19 @@ def mpo(env_fn,
 
         traj_batch_size = 2
         sample_traj = replay_buffer.sample_traj(traj_batch_size=traj_batch_size)
+        traj_len = sample_traj['state'].size()[1]
         curr_q_vals = ac.q.forward(sample_traj['state'], sample_traj['action'])
         targ_q_vals = ac_targ.q.forward(sample_traj['state'], sample_traj['action'])
         mu_targ, cov_targ = ac_targ.pi.forward(sample_traj['state'])
         targ_pol_prob = ac_targ.pi.get_prob(mu_targ, cov_targ, sample_traj['action'])
 
-        expected_q_vals = torch.zeros((traj_batch_size, max_ep_len), device=local_device)
+        expected_q_vals = torch.zeros((traj_batch_size, traj_len), device=local_device)
         for i in range(traj_batch_size):
             targ_actions, _ = ac_targ.pi.get_act(mu_targ[i, :, :],
                                                  cov_targ[i, :, :],
-                                                 batch_size_policy,
-                                                 traj=True)
+                                                 batch_size_policy)
+            targ_actions = torch.reshape(
+                targ_actions, (batch_size_policy, traj_len, action_dim))
             states = sample_traj['state'][i, :, :]
             states = states.repeat(batch_size_policy, 1, 1)
             expected_q_vals[i, :] = torch.mean(
@@ -261,12 +268,11 @@ def mpo(env_fn,
         targ_mu, targ_cov = ac_targ.pi.forward(states)
         targ_act_samples, _ = ac_targ.pi.get_act(targ_mu,
                                                  targ_cov,
-                                                 batch_size_policy,
-                                                 batch=True)
+                                                 batch_size_policy)
 
         # get Q values for samples from current Q function
         # get Q values from target Q function
-        states = torch.reshape(states, (batch_size_replay, 1, state_dim)).repeat(1, batch_size_policy, 1)
+        states = states.repeat(batch_size_policy, 1)
         targ_q_batch = ac_targ.q.forward(states, targ_act_samples)
         targ_q_batch = torch.reshape(targ_q_batch, (batch_size_replay, batch_size_policy, 1))
 
@@ -332,9 +338,9 @@ def mpo(env_fn,
                 # reset environment if necessary
                 if d or (ep_len == max_ep_len):
                     s, ep_ret, ep_len = env.reset(), 0, 0
+                    replay_buffer.next_traj()
                     break
 
-        replay_buffer.next_traj()
         performed_trajectories += traj_update_count
         for k in range(update_target_after):
 
@@ -357,6 +363,8 @@ def mpo(env_fn,
         # Log all relevant information
         logger.log_tabular('Epoch', epoch)
         logger.log_tabular('Performed Trajectories', performed_trajectories)
+        logger.log_tabular('Environment Interactions',
+                           replay_buffer.stored_interactions)
         logger.log_tabular('TestEpLen', with_min_and_max=True)
         logger.log_tabular('TestEpRet', with_min_and_max=True)
 

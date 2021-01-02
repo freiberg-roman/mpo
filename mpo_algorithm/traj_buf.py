@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 
-class TrajtoryBuffer:
+class TrajectoryBuffer:
     def __init__(self, state_dim, action_dim, rollout, traj_size, device):
         self.s_buf = np.zeros((traj_size, rollout, state_dim),
                               dtype=np.float32)
@@ -15,6 +15,7 @@ class TrajtoryBuffer:
         self.max_traj, self.max_rollout = traj_size, rollout
         self.size = 0
         self.device = device
+        self.stored_interactions = 0
 
     def store(self, state, action, reward, pi_logp):
         self.s_buf[self.ptr_traj, self.ptr_step, :] = state
@@ -30,7 +31,7 @@ class TrajtoryBuffer:
             self.size = min(self.size + 1, self.max_traj)
 
     def next_traj(self):
-        pass
+        self.stored_interactions += self.max_rollout
 
     def sample_batch(self, batch_size=32):
         idxs = np.random.randint(0, self.size * self.max_rollout,

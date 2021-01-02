@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.distributions.normal import Normal
+from torch.distributions.independent import Independent
 
 
 def combined_shape(length, shape=None):
@@ -41,32 +42,17 @@ class GaussianMLPActor(nn.Module):
         return mu, covariance
 
     def get_prob(self, mu, covariance, action):
-        pi_distribution = Normal(mu, covariance)
+        pi_distribution = Independent(Normal(mu, covariance), 1)
         logp = pi_distribution.log_prob(action)
         return logp
 
-    def get_act(self, mu, covariance, n, deterministic=False, traj=False, batch=False):
-        mu = mu.clone()
-        covariance = covariance.clone()
-
+    def get_act(self, mu, covariance, n, deterministic=False):
         if deterministic:
             return mu.repeat(n, 1), None
 
-        if traj:
-            mu = torch.reshape(mu, (1, 200, 1))  # I am tiered !!!!! must rework !!!!!!
-            covariance = torch.reshape(covariance, (1, 200, 1))  # I am tiered !!!!! must rework !!!!!!
-            mu = mu.repeat(n, 1, 1)
-            covariance = covariance.repeat(n, 1, 1)
-        elif batch:
-            mu = torch.reshape(mu, (128, 1, 1))  # I am tiered !!!!! must rework !!!!!!
-            covariance = torch.reshape(covariance, (128, 1, 1))  # I am tiered !!!!! must rework !!!!!!
-            mu = mu.repeat(1, n, 1)
-            covariance = covariance.repeat(1, n, 1)
-        else:
-            mu = mu.repeat(n, 1)
-            covariance = covariance.repeat(n, 1)
-
-        pi_distribution = Normal(mu, covariance)
+        mu = mu.repeat(n, 1)
+        covariance = covariance.repeat(n, 1)
+        pi_distribution = Independent(Normal(mu, covariance), 1)
         actions = pi_distribution.rsample()
         return actions, pi_distribution.log_prob(actions)
 
@@ -84,12 +70,12 @@ class MLPQFunction(nn.Module):
 
 class MLPActorCritic(nn.Module):
 
-    def __init__(self, state_space, action_space, hidden_sizes_pi=(100, 100),
+    def __init__(self, state_space, action_dim, hidden_sizes_pi=(100, 100),
                  hidden_sizes_q=(200, 200), activation=nn.ReLU):
         super().__init__()
 
         state_dim = state_space.shape[0]
-        action_dim = action_space.shape[0]
+        action_dim = action_dim
         self.pi = GaussianMLPActor(state_dim, action_dim, hidden_sizes_pi, activation).cuda()
         self.q = MLPQFunction(state_dim, action_dim, hidden_sizes_q, activation).cuda()
 

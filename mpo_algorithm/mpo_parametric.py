@@ -24,8 +24,8 @@ def mpo_parametric(env_fn,
                    eps_sig=0.0001,
                    lr=0.0005,
                    alpha=0.1,
-                   batch_size_replay=128,
-                   batch_size_policy=64,
+                   batch_size_replay=64,
+                   batch_size_policy=16,
                    init_eta_mu=6.0,
                    init_eta_sigma=6.0,
                    update_target_after=1000,
@@ -168,11 +168,11 @@ def mpo_parametric(env_fn,
         logger.store(EtaMu=eta_mu.item())
         logger.store(EtaSig=eta_sig.item())
 
-    def update_q():
+    def update_q(traj):
         q_optimizer.zero_grad()
 
-        traj_batch_size = 2
-        sample_traj = replay_buffer.sample_traj(traj_batch_size=traj_batch_size)
+        traj_batch_size = 10
+        sample_traj = traj
         traj_len = sample_traj['state'].size()[1]
         curr_q_vals = ac.q.forward(sample_traj['state'], sample_traj['action'])
         targ_q_vals = ac_targ.q.forward(sample_traj['state'], sample_traj['action'])
@@ -298,9 +298,14 @@ def mpo_parametric(env_fn,
                     break
 
         performed_trajectories += traj_update_count
+        traj = replay_buffer.sample_traj(traj_batch_size=10)
         for k in range(update_target_after):
+            traj['state'] = traj['state'].roll(-1, 1)
+            traj['action'] = traj['action'].roll(-1, 1)
+            traj['reward'] = traj['reward'].roll(-1, 1)
+            traj['pi_logp'] = traj['pi_logp'].roll(-1, 1)
             # perform gradient descent step
-            update_q()
+            update_q(traj)
             update(prep_data())
 
         # update target parameters

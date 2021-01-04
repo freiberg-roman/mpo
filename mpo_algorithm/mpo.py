@@ -27,8 +27,8 @@ def mpo(env_fn,
         eps_sig=0.0001,
         lr=0.0005,
         alpha=0.1,
-        batch_size_replay=128,
-        batch_size_policy=64,
+        batch_size_replay=64,
+        batch_size_policy=16,
         init_eta=5.0,
         init_eta_mu=5.0,
         init_eta_sigma=5.0,
@@ -131,8 +131,10 @@ def mpo(env_fn,
         cur_logp = torch.squeeze(data['cur_logp'], dim=-1)
         eta.requires_grad = False
         exp_q_eta = torch.exp(target_q / eta)
+        normalizer = 1 / torch.exp(target_q / eta).mean(dim=1)
+        normalizer = torch.reshape(normalizer, (batch_size_replay, 1))
         res = torch.mean(torch.mean(
-            cur_logp * exp_q_eta, dim=-1), dim=-1)
+            cur_logp * (exp_q_eta * normalizer), dim=-1), dim=-1)
         eta.requires_grad = True
         return -(res + lagr)
 
@@ -196,11 +198,11 @@ def mpo(env_fn,
         logger.store(EtaMu=eta_mu.item())
         logger.store(EtaSig=eta_sig.item())
 
-    def update_q():
+    def update_q(traj):
         q_optimizer.zero_grad()
 
-        traj_batch_size = 2
-        sample_traj = replay_buffer.sample_traj(traj_batch_size=traj_batch_size)
+        traj_batch_size = 20
+        sample_traj = traj
         traj_len = sample_traj['state'].size()[1]
         curr_q_vals = ac.q.forward(sample_traj['state'], sample_traj['action'])
         targ_q_vals = ac_targ.q.forward(sample_traj['state'], sample_traj['action'])
@@ -291,7 +293,7 @@ def mpo(env_fn,
     # main loop
     performed_trajectories = 0
     epoch = 0
-    first_random_traj = 50
+    first_random_traj = 30
     while performed_trajectories < max_traj:
 
         # sample trajectories from environment
@@ -326,10 +328,15 @@ def mpo(env_fn,
                     break
 
         performed_trajectories += traj_update_count
+        traj = replay_buffer.sample_traj(traj_batch_size=20)
         for k in range(update_target_after):
+            traj['state'] = traj['state'].roll(-1, 1)
+            traj['action'] = traj['action'].roll(-1, 1)
+            traj['reward'] = traj['reward'].roll(-1, 1)
+            traj['pi_logp'] = traj['pi_logp'].roll(-1, 1)
 
             # perform gradient descent step
-            update_q()
+            update_q(traj)
             update(prep_data())
 
         # update target parameters

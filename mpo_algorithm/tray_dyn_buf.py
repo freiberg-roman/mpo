@@ -66,7 +66,7 @@ class DynamicTrajectoryBuffer:
         return {k: torch.as_tensor(v, dtype=torch.float32,
                                    device=self.device) for k, v in batch.items()}
 
-    def sample_traj(self, traj_batch_size=4):
+    def sample_traj(self, traj_batch_size=2):
         idxs = np.random.randint(0, self.size_traj, size=traj_batch_size)
         min_length = np.min(self.len_used[1:self.size_traj + 1])
         assert min_length >= self.min_rollout
@@ -79,3 +79,34 @@ class DynamicTrajectoryBuffer:
         )
         return {k: torch.as_tensor(v, dtype=torch.float32, device=self.device) \
                 for k, v in batch.items()}
+
+    def sample_traj_trunc(self, start=0, traj_batch_size=2):
+        idxs = np.random.randint(0, self.size_traj, size=traj_batch_size)
+        min_length = np.min(self.len_used[1:self.size_traj + 1])
+        assert min_length >= self.min_rollout
+
+        batch = dict(
+            state=self.s_buf[idxs, start:min_length],
+            action=self.action_buf[idxs, start:min_length],
+            reward=self.rew_buf[idxs, start:min_length],
+            pi_logp=self.pi_logp_buf[idxs, start:min_length],
+        )
+        return {k: torch.as_tensor(v, dtype=torch.float32, device=self.device) \
+                for k, v in batch.items()}
+
+    def sample_circular_traj(self, idxs, start=0):
+        min_length = np.min(self.len_used[1:self.size_traj + 1])
+        assert min_length >= self.min_rollout
+        start = start % min_length
+
+        batch = dict(
+            state=np.append(self.s_buf[idxs, start:min_length], self.s_buf[idxs, 0:start]),
+            action=np.append(self.action_buf[idxs, start:min_length], self.action_buf[idxs, 0:start]),
+            reward=np.append(self.rew_buf[idxs, start:min_length], self.rew_buf[idxs, 0:start]),
+            pi_logp=np.append(self.pi_logp_buf[idxs, start:min_length], self.pi_logp_buf[idxs, 0:start]),
+        )
+        return {k: torch.as_tensor(v, dtype=torch.float32, device=self.device) \
+                for k, v in batch.items()}
+
+    def sample_indexes(self, amount):
+        return np.random.randint(0, self.size_traj, size=amount)

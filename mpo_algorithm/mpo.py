@@ -8,6 +8,7 @@ from mpo_algorithm import core
 from utils.logx import EpochLogger
 from mpo_algorithm.retrace import Retrace
 from mpo_algorithm.tray_dyn_buf import DynamicTrajectoryBuffer
+from tqdm import tqdm
 
 local_device = "cuda:0"
 
@@ -27,11 +28,12 @@ def mpo(env_fn,
         eps_sig=0.0001,
         lr=0.0005,
         alpha=0.1,
-        batch_size_replay=64,
-        batch_size_policy=16,
-        init_eta=5.0,
-        init_eta_mu=5.0,
-        init_eta_sigma=5.0,
+        batch_size_replay=128,
+        batch_size_policy=20,
+        rollout_length=5,
+        init_eta=1.0,
+        init_eta_mu=1.0,
+        init_eta_sigma=1.0,
         update_target_after=1000,
         num_test_episodes=50,
         action_dim=1,
@@ -88,6 +90,7 @@ def mpo(env_fn,
                                             action_dim,
                                             10,
                                             max_ep_len,
+                                            5,
                                             5000,
                                             local_device)
 
@@ -130,11 +133,9 @@ def mpo(env_fn,
         # cur_logp: tensor of shape (batch_size_replay, batch_size_policy)
         cur_logp = torch.squeeze(data['cur_logp'], dim=-1)
         eta.requires_grad = False
-        exp_q_eta = torch.exp(target_q / eta)
-        normalizer = 1 / torch.exp(target_q / eta).mean(dim=1)
-        normalizer = torch.reshape(normalizer, (batch_size_replay, 1))
+        norm_exp_q_eta = torch.softmax(target_q / eta, dim=0)
         res = torch.mean(torch.mean(
-            cur_logp * (exp_q_eta * normalizer), dim=-1), dim=-1)
+            cur_logp * norm_exp_q_eta, dim=-1), dim=-1)
         eta.requires_grad = True
         return -(res + lagr)
 
@@ -146,7 +147,7 @@ def mpo(env_fn,
 
     logger.setup_pytorch_saver(ac)
 
-    def update(data):
+    def update(data, eta, eta_mu, eta_sig):
         # update for eta
         eta_optimizer.zero_grad()
         eta_data = data['eta']
@@ -175,6 +176,13 @@ def mpo(env_fn,
         loss_eta_lagr.backward()
         eta_lagr_optimizer.step()
 
+        eta_lagr_optimizer.zero_grad()
+        eta_optimizer.zero_grad()
+        eta_mu = eta_mu.clamp(min=10**-8)
+        eta = eta.clamp(min=10**-8)
+        eta_sig = eta_sig.clamp(min=10**-8)
+
+
         pi_data = data['pi']
         pi_data['cur_sig'] = cur_cov
         pi_data['cur_mu'] = cur_mu
@@ -198,24 +206,22 @@ def mpo(env_fn,
         logger.store(EtaMu=eta_mu.item())
         logger.store(EtaSig=eta_sig.item())
 
-    def update_q(traj):
+    def update_q(rows, cols):
         q_optimizer.zero_grad()
 
-        traj_batch_size = 20
-        sample_traj = traj
-        traj_len = sample_traj['state'].size()[1]
+        sample_traj = replay_buffer.sample_trajectories(rows, cols)
         curr_q_vals = ac.q.forward(sample_traj['state'], sample_traj['action'])
         targ_q_vals = ac_targ.q.forward(sample_traj['state'], sample_traj['action'])
         mu_targ, cov_targ = ac_targ.pi.forward(sample_traj['state'])
         targ_pol_prob = ac_targ.pi.get_prob(mu_targ, cov_targ, sample_traj['action'])
 
-        expected_q_vals = torch.zeros((traj_batch_size, traj_len), device=local_device)
-        for i in range(traj_batch_size):
+        expected_q_vals = torch.zeros((rollout_length, batch_size_replay), device=local_device)
+        for i in range(rollout_length):
             targ_actions, _ = ac_targ.pi.get_act(mu_targ[i, :, :],
                                                  cov_targ[i, :, :],
                                                  batch_size_policy)
             targ_actions = torch.reshape(
-                targ_actions, (batch_size_policy, traj_len, action_dim))
+                targ_actions, (batch_size_policy, batch_size_replay, action_dim))
             states = sample_traj['state'][i, :, :]
             states = states.repeat(batch_size_policy, 1, 1)
             expected_q_vals[i, :] = torch.mean(
@@ -234,8 +240,8 @@ def mpo(env_fn,
         q_optimizer.step()
         logger.store(LossQ=loss_q.item())
 
-    def prep_data():
-        samples = replay_buffer.sample_batch(batch_size=batch_size_replay)
+    def prep_data(rows, cols):
+        samples = replay_buffer.sample_batch(rows, cols)
         states = samples['state']
 
         data = dict()
@@ -298,11 +304,11 @@ def mpo(env_fn,
 
         # sample trajectories from environment
         # and safe in replay buffer
-        for _ in range(traj_update_count):
+        for _ in tqdm(range(traj_update_count), desc='sampling trajectories'):
 
             # sample steps
             while True:
-                # action from current policy
+                # sample from random policy for better exploration
                 if performed_trajectories < first_random_traj:
                     a = env.action_space.sample()
                     mu_rand, cov_rand = ac_targ.pi.forward(
@@ -310,6 +316,7 @@ def mpo(env_fn,
                     logp = ac_targ.pi.get_prob(
                         mu_rand, cov_rand, torch.as_tensor(a, dtype=torch.float32, device=local_device))
                 else:
+                    # action from current policy
                     a, logp = get_action(s)
                 # do step in environment
                 s2, r, d, _ = env.step(a)
@@ -328,16 +335,12 @@ def mpo(env_fn,
                     break
 
         performed_trajectories += traj_update_count
-        traj = replay_buffer.sample_traj(traj_batch_size=20)
-        for k in range(update_target_after):
-            traj['state'] = traj['state'].roll(-1, 1)
-            traj['action'] = traj['action'].roll(-1, 1)
-            traj['reward'] = traj['reward'].roll(-1, 1)
-            traj['pi_logp'] = traj['pi_logp'].roll(-1, 1)
+        rows, cols = replay_buffer.sample_idxs(batch_size=batch_size_replay)
+        for k in tqdm(range(update_target_after), desc='updating policy'):
 
             # perform gradient descent step
-            update_q(traj)
-            update(prep_data())
+            update_q(rows, cols)
+            update(prep_data(rows, cols), eta, eta_mu, eta_sig)
 
         # update target parameters
         # use ugly hack until better option is found
@@ -355,7 +358,7 @@ def mpo(env_fn,
         logger.log_tabular('Epoch', epoch)
         logger.log_tabular('Performed Trajectories', performed_trajectories)
         logger.log_tabular('Environment Interactions',
-                           replay_buffer.stored_interactions)
+                           replay_buffer.stored_interactions())
         logger.log_tabular('TestEpLen', with_min_and_max=True)
         logger.log_tabular('TestEpRet', with_min_and_max=True)
 
@@ -383,7 +386,7 @@ if __name__ == '__main__':
     parser.add_argument('--l', type=int, default=2)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--seed', '-s', type=int, default=0)
-    parser.add_argument('--epochs', type=int, default=3)
+    parser.add_argument('--epochs', type=int, default=30)
     parser.add_argument('--exp_name', type=str, default='mpo')
     args = parser.parse_args()
 

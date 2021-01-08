@@ -8,6 +8,7 @@ class DynamicTrajectoryBuffer:
                  action_dim,
                  min_rollout,
                  max_rollout,
+                 traj_rollout,
                  traj_size,
                  device):
         self.s_buf = np.zeros((traj_size, max_rollout, state_dim),
@@ -26,8 +27,11 @@ class DynamicTrajectoryBuffer:
         self.max_traj = traj_size
         self.max_rollout = max_rollout
         self.min_rollout = min_rollout
+
+        assert min_rollout >= traj_rollout
+        self.traj_rollout = traj_rollout
         self.size_traj = 0
-        self.stored_interactions = 0
+        self.interactions = 0
 
     def store(self, state, action, reward, pi_logp):
         assert self.ptr_step < self.max_rollout
@@ -38,25 +42,31 @@ class DynamicTrajectoryBuffer:
         self.pi_logp_buf[self.ptr_traj, self.ptr_step, :] = pi_logp
 
         self.ptr_step += 1
+        self.interactions += 1
 
     def next_traj(self):
         # will commit the current trajectory
         # only then batch samples from this trajectory are possible
         assert self.ptr_step >= self.min_rollout
-        self.ptr_traj = (self.ptr_traj + 1) % self.max_traj
         self.len_used[self.ptr_traj] = self.ptr_step  # length of this trajectory
-        self.stored_interactions += self.ptr_step
+        self.ptr_traj = (self.ptr_traj + 1) % self.max_traj
         self.ptr_step = 0
         self.size_traj = min(self.size_traj + 1, self.max_traj)
 
-    def sample_batch(self, batch_size=32):
-        size_all = np.sum(self.len_used)
+    def sample_idxs(self, batch_size=768):
+        # usable length for given rollout
+        effective_len = self.len_used[0:self.ptr_traj] - (self.traj_rollout - 1)
+        size_all = np.sum(effective_len)
+        # random indexes in usable range
         idxs = np.random.randint(0, size_all, size=batch_size)
+        # adjusted cumulative length for indexs
+        cum_len_idxs = np.cumsum(effective_len) - 1
+        # calculating rows and columns for usable arrays
+        rows = np.searchsorted(cum_len_idxs, idxs)
+        cols = idxs - (np.append([0], (cum_len_idxs + 1))[rows])
+        return rows, cols
 
-        cum_len_idxs = np.cumsum(self.len_used) - 1
-        rows = np.searchsorted(cum_len_idxs[1:], idxs)
-        cols = idxs - (cum_len_idxs[rows] + 1)
-
+    def sample_batch(self, rows, cols):
         batch = dict(
             state=self.s_buf[rows, cols],
             action=self.action_buf[rows, cols],
@@ -66,47 +76,16 @@ class DynamicTrajectoryBuffer:
         return {k: torch.as_tensor(v, dtype=torch.float32,
                                    device=self.device) for k, v in batch.items()}
 
-    def sample_traj(self, traj_batch_size=2):
-        idxs = np.random.randint(0, self.size_traj, size=traj_batch_size)
-        min_length = np.min(self.len_used[1:self.size_traj + 1])
-        assert min_length >= self.min_rollout
-
+    def sample_trajectories(self, rows, cols):
+        cols = tuple([cols + i for i in range(self.traj_rollout)])
         batch = dict(
-            state=self.s_buf[idxs, 0:min_length],
-            action=self.action_buf[idxs, 0:min_length],
-            reward=self.rew_buf[idxs, 0:min_length],
-            pi_logp=self.pi_logp_buf[idxs, 0:min_length],
+            state=self.s_buf[rows, cols],
+            action=self.action_buf[rows, cols],
+            reward=self.rew_buf[rows, cols],
+            pi_logp=self.pi_logp_buf[rows, cols],
         )
-        return {k: torch.as_tensor(v, dtype=torch.float32, device=self.device) \
-                for k, v in batch.items()}
+        return {k: torch.as_tensor(v, dtype=torch.float32,
+                                   device=self.device) for k, v in batch.items()}
 
-    def sample_traj_trunc(self, start=0, traj_batch_size=2):
-        idxs = np.random.randint(0, self.size_traj, size=traj_batch_size)
-        min_length = np.min(self.len_used[1:self.size_traj + 1])
-        assert min_length >= self.min_rollout
-
-        batch = dict(
-            state=self.s_buf[idxs, start:min_length],
-            action=self.action_buf[idxs, start:min_length],
-            reward=self.rew_buf[idxs, start:min_length],
-            pi_logp=self.pi_logp_buf[idxs, start:min_length],
-        )
-        return {k: torch.as_tensor(v, dtype=torch.float32, device=self.device) \
-                for k, v in batch.items()}
-
-    def sample_circular_traj(self, idxs, start=0):
-        min_length = np.min(self.len_used[1:self.size_traj + 1])
-        assert min_length >= self.min_rollout
-        start = start % min_length
-
-        batch = dict(
-            state=np.append(self.s_buf[idxs, start:min_length], self.s_buf[idxs, 0:start]),
-            action=np.append(self.action_buf[idxs, start:min_length], self.action_buf[idxs, 0:start]),
-            reward=np.append(self.rew_buf[idxs, start:min_length], self.rew_buf[idxs, 0:start]),
-            pi_logp=np.append(self.pi_logp_buf[idxs, start:min_length], self.pi_logp_buf[idxs, 0:start]),
-        )
-        return {k: torch.as_tensor(v, dtype=torch.float32, device=self.device) \
-                for k, v in batch.items()}
-
-    def sample_indexes(self, amount):
-        return np.random.randint(0, self.size_traj, size=amount)
+    def stored_interactions(self):
+        return self.interactions

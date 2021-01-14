@@ -13,9 +13,9 @@ if __name__ == "__main__":
     parser.add_argument('--hid_q', type=int, default=256)
     parser.add_argument('--hid_pi', type=int, default=256)
     parser.add_argument('--l', type=int, default=2)
-    parser.add_argument('--gamma', type=float, default=0.99)
+    parser.add_argument('--gamma', type=float, default=0.95)
     parser.add_argument('--seed', '-s', type=int, default=0)
-    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--epochs', type=int, default=15)
     parser.add_argument('--exp_name', type=str, default='mpo_parametric')
     args = parser.parse_args()
 
@@ -34,7 +34,7 @@ if __name__ == "__main__":
                    gamma=args.gamma,
                    seed=args.seed,
                    epochs=args.epochs,
-                   reward_scaling=lambda r: r * 0.30725 + 5,
+                   reward_scaling=lambda r: -(r * 0.30725*0.2 + 1) + 1,
                    logger_kwargs=logger_kwargs
                    )
 

@@ -34,7 +34,7 @@ if __name__ == "__main__":
         gamma=args.gamma,
         seed=args.seed,
         epochs=args.epochs,
-        reward_scaling=lambda r: r*0.30725*0.2 + 1,
+        reward_scaling=lambda r: r,
 
         logger_kwargs=logger_kwargs
         )

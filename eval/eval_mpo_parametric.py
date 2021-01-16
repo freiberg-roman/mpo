@@ -1,5 +1,5 @@
 from mpo_algorithm import core
-from mpo_algorithm.mpo_parametric import mpo_parametric
+from mpo_algorithm.mpo_parametric import mpo
 import argparse
 import torch
 import gym
@@ -15,7 +15,7 @@ if __name__ == "__main__":
     parser.add_argument('--l', type=int, default=2)
     parser.add_argument('--gamma', type=float, default=0.95)
     parser.add_argument('--seed', '-s', type=int, default=0)
-    parser.add_argument('--epochs', type=int, default=15)
+    parser.add_argument('--epochs', type=int, default=20)
     parser.add_argument('--exp_name', type=str, default='mpo_parametric')
     args = parser.parse_args()
 
@@ -27,7 +27,7 @@ if __name__ == "__main__":
                                         True)
 
     torch.set_num_threads(torch.get_num_threads())
-    mpo_parametric(lambda: gym.make(args.env),
+    mpo(lambda: gym.make(args.env),
                    actor_critic=core.MLPActorCritic,
                    ac_kwargs=dict(hidden_sizes_q=[args.hid_q] * args.l,
                                   hidden_sizes_pi=[args.hid_pi] * args.l),

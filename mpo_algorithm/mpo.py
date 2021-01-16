@@ -24,19 +24,20 @@ def mpo(env_fn,
         gamma=0.99,
         epochs=2000,
         traj_update_count=20,
-        max_ep_len=200,
+        max_ep_len=1000,
         eps=0.1,
         eps_mean=0.1,
         eps_cov=0.0001,
         lr=0.0005,
         lr_lagr=0.0005,
         alpha=0.1,
-        batch_s=128,
+        batch_t=10,
+        batch_s=768,
         batch_act=20,
-        len_rollout=2,
+        len_rollout=1000,
         init_eta=10.0,
-        init_eta_mean=0.0,
-        init_eta_cov=0.0,
+        init_eta_mean=1.0,
+        init_eta_cov=1.0,
         update_target_after=1000,
         num_test_episodes=50,
         reward_scaling=lambda r: r,
@@ -83,7 +84,7 @@ def mpo(env_fn,
     # replay buffer
     replay_buffer = DynamicTrajectoryBuffer(s_dim,
                                             a_dim,
-                                            100,
+                                            max_ep_len,
                                             max_ep_len,
                                             len_rollout,
                                             5000,
@@ -205,13 +206,13 @@ def mpo(env_fn,
         targ_pol_prob = ac_targ.pi.get_dist(
             targ_mean, targ_cov).log_prob(sample_traj['action'])
 
-        expected_q_vals = torch.zeros((len_rollout, batch_s), device=local_device)
+        expected_q_vals = torch.zeros((len_rollout, batch_t), device=local_device)
         for i in range(len_rollout):
             targ_act, _ = ac_targ.pi.get_act(targ_mean[i, :, :],
                                              targ_cov[i, :, :],
                                              batch_act)
             states = sample_traj['state'][i, :, :]
-            states = states.expand((batch_act, batch_s, s_dim))
+            states = states.expand((batch_act, batch_t, s_dim))
             expected_q_vals[i, :] = ac_targ.q.forward(
                 states, targ_act).mean(dim=0)
 
@@ -294,32 +295,50 @@ def mpo(env_fn,
                 ep_ret += r
                 ep_len += 1
 
-                d = False if ep_len == max_ep_len else d
+                # d = False if ep_len == max_ep_len else d
 
                 replay_buffer.store(s.reshape(s_dim), a, r, logp.cpu().numpy())
                 s = s2
                 # reset environment if necessary
-                if d or (ep_len == max_ep_len):
+                if ep_len == max_ep_len:
                     s, ep_ret, ep_len = env.reset(), 0, 0
                     replay_buffer.next_traj()
                     break
 
         performed_trajectories += traj_update_count
-        rows, cols = replay_buffer.sample_idxs(batch_size=batch_s)
+
+        # update q function
+        rows, cols = replay_buffer.sample_idxs(batch_size=batch_t)
+        update_q(rows, cols)
+
+        # update eta by dual optimization
+        for _ in range(10):
+            rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_t * batch_s)
+            samples = replay_buffer.sample_batch(rows, cols)
+            states = samples['state']
+
+            targ_mean, targ_cov = ac_targ.pi.forward(states)
+            cur_mean, cur_cov = ac.pi.forward(states)
+            targ_act_samples, _ = ac_targ.pi.get_act(targ_mean,
+                                                     targ_cov,
+                                                     batch_act)
+
+            states = states.expand((batch_act, batch_t * batch_s, s_dim))
+            targ_q_vals = ac_targ.q.forward(states, targ_act_samples)
+            update_eta(targ_q_vals)
         for k in tqdm(range(update_target_after), desc='updating policy'):
+            # sample random batch
+            rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
             # perform gradient descent step
-            update_q(rows, cols)
             targ_q_vals, cur_mean, cur_cov, targ_mean, targ_cov, act_samples = \
                 prep_data(rows, cols)
-            if k % 50 == 0:
-                update_eta(targ_q_vals)
             c_mean, c_cov = update_eta_lagr(cur_mean,
                                             cur_cov,
                                             targ_mean,
                                             targ_cov)
             # updating pi
             opti_pi.zero_grad()
-            loss_pi = compute_pi_loss2(
+            loss_pi = compute_pi_loss(
                 targ_q_vals,
                 cur_mean,
                 cur_cov,

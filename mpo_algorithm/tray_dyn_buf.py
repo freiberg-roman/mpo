@@ -66,6 +66,18 @@ class DynamicTrajectoryBuffer:
         cols = idxs - (np.append([0], (cum_len_idxs + 1))[rows])
         return rows, cols
 
+    def sample_idxs_batch(self, batch_size=768):
+        effective_len = self.len_used[0:self.ptr_traj]
+        size_all = np.sum(effective_len)
+        # random indexes in usable range
+        idxs = np.random.randint(0, size_all, size=batch_size)
+        # adjusted cumulative length for indexs
+        cum_len_idxs = np.cumsum(effective_len) - 1
+        # calculating rows and columns for usable arrays
+        rows = np.searchsorted(cum_len_idxs, idxs)
+        cols = idxs - (np.append([0], (cum_len_idxs + 1))[rows])
+        return rows, cols
+
     def sample_batch(self, rows, cols):
         batch = dict(
             state=self.s_buf[rows, cols],

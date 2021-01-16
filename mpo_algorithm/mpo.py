@@ -13,7 +13,7 @@ from tqdm import tqdm
 from torch.distributions.normal import Normal
 from torch.distributions.independent import Independent
 
-local_device = "cuda:0"
+local_device = "cpu"
 
 
 def mpo(env_fn,

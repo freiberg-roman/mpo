@@ -36,9 +36,11 @@ class GaussianMLPActor(nn.Module):
 
     def forward(self, state):
         act_lim_low = torch.from_numpy(
-            self.env.action_space.low)[None, ...].to("cuda:0")
+            # self.env.action_space.low)[None, ...].to("cuda:0")
+            self.env.action_space.low)[None, ...]
         act_lim_high = torch.from_numpy(
-            self.env.action_space.high)[None, ...].to("cuda:0")
+            # self.env.action_space.high)[None, ...].to("cuda:0")
+            self.env.action_space.high)[None, ...]
         net_out = self.net(state)
         mu = torch.sigmoid(self.mu_layer(net_out))
         # enforce bounds on mu
@@ -81,8 +83,10 @@ class MLPActorCritic(nn.Module):
                  hidden_sizes_q=(200, 200), activation=nn.ReLU):
         super().__init__()
 
-        self.pi = GaussianMLPActor(env, hidden_sizes_pi, activation).cuda()
-        self.q = MLPQFunction(env, hidden_sizes_q, activation).cuda()
+        self.pi = GaussianMLPActor(env, hidden_sizes_pi, activation)
+        # self.pi = GaussianMLPActor(env, hidden_sizes_pi, activation).cuda()
+        self.q = MLPQFunction(env, hidden_sizes_q, activation)
+        # self.q = MLPQFunction(env, hidden_sizes_q, activation).cuda()
 
     def act(self, obs, deterministic=False):
         with torch.no_grad():

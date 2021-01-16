@@ -35,11 +35,11 @@ def mpo(env_fn,
         batch_s=768,
         batch_act=20,
         len_rollout=1000,
-        init_eta=10.0,
+        init_eta=1.0,
         init_eta_mean=1.0,
         init_eta_cov=1.0,
         update_target_after=1000,
-        num_test_episodes=50,
+        num_test_episodes=200,
         reward_scaling=lambda r: r,
         logger_kwargs=dict()):
     logger = EpochLogger(**logger_kwargs)
@@ -47,8 +47,8 @@ def mpo(env_fn,
     max_traj = epochs * traj_update_count
 
     # seeds for testing
-    torch.manual_seed(seed)
-    np.random.seed(seed)
+    # torch.manual_seed(seed)
+    # np.random.seed(seed)
 
     # environment parameters
     env, test_env = env_fn(), env_fn()
@@ -95,7 +95,7 @@ def mpo(env_fn,
     logger.log('\nNumber of parameters: \t pi: %d, \t q: %d\n' % var_counts)
 
     def compute_lagr_loss(cur_mean, cur_cov, targ_mean, targ_cov):
-        # assume dimensions to be (batch_s, act_dim)
+        # dimensions to be (batch_s, a_dim)
         n = a_dim
         combined_trace = ((1 / cur_cov) * targ_cov).sum(dim=1)
         target_det = targ_cov.prod(dim=1)
@@ -127,7 +127,9 @@ def mpo(env_fn,
                     dist_1.expand((batch_act, batch_s)).log_prob(samples_act) +
                     dist_2.expand((batch_act, batch_s)).log_prob(samples_act)
             ))
-        return -(loss + eta_mean * (eps_mean - c_mean) + eta_cov * (eps_cov - c_cov))
+        combined_loss = -(loss + eta_mean * (eps_mean - c_mean) + eta_cov * (eps_cov - c_cov))
+        logger.store(LossPi=combined_loss.item())
+        return combined_loss
 
     def compute_pi_loss2(targ_q_vals,  # (batch_act, batch_s)
                         cur_mean,  # (batch_s,)
@@ -147,13 +149,16 @@ def mpo(env_fn,
         loss = torch.mean(
                     cur_dist.expand((batch_act, batch_s)).log_prob(samples_act_weighted)
             )
-        return -(loss + eta_mean * (eps_mean - c_mean) + eta_cov * (eps_cov - c_cov))
+        combined_loss = -(loss + eta_mean * (eps_mean - c_mean) + eta_cov * (eps_cov - c_cov))
+        logger.store(LossPi=combined_loss.item())
+        return combined_loss
+
 
     # setting up Adam Optimizer for gradient descent with momentum
     opti_q = Adam(ac.q.parameters(), lr=lr)
     opti_pi = Adam(ac.pi.parameters(), lr=lr)
 
-
+    # set up logger to save model after each epoch
     logger.setup_pytorch_saver(ac)
 
     def update_eta(targ_q_vals):
@@ -253,7 +258,7 @@ def mpo(env_fn,
         return action, logp_pi
 
     def test_agent():
-        for j in range(num_test_episodes):
+        for j in tqdm(range(num_test_episodes), desc="testing model"):
             s, d, ep_ret, ep_len = test_env.reset(), False, 0, 0
             while not (d or (ep_len == max_ep_len)):
                 with torch.no_grad():
@@ -299,8 +304,9 @@ def mpo(env_fn,
 
                 replay_buffer.store(s.reshape(s_dim), a, r, logp.cpu().numpy())
                 s = s2
-                # reset environment if necessary
+                # reset environment (ignore done signal)
                 if ep_len == max_ep_len:
+                    logger.store(OneStepRet=ep_ret/ep_len)
                     s, ep_ret, ep_len = env.reset(), 0, 0
                     replay_buffer.next_traj()
                     break
@@ -332,6 +338,13 @@ def mpo(env_fn,
             # perform gradient descent step
             targ_q_vals, cur_mean, cur_cov, targ_mean, targ_cov, act_samples = \
                 prep_data(rows, cols)
+
+            # log q and actor values
+            logger.store(QVal=targ_q_vals[0][0].item())
+            # actor values can only be logged for pendulum !!!
+            logger.store(ActorMean=cur_mean[0][0].item())
+            logger.store(ActorCov=cur_cov[0][0].item())
+
             c_mean, c_cov = update_eta_lagr(cur_mean,
                                             cur_cov,
                                             targ_mean,
@@ -350,7 +363,6 @@ def mpo(env_fn,
             )
             loss_pi.backward()
             opti_pi.step()
-            logger.store(LossPi=loss_pi.item())
 
         # update target parameters
         # use ugly hack until better option is found
@@ -369,7 +381,6 @@ def mpo(env_fn,
         logger.log_tabular('Performed Trajectories', performed_trajectories)
         logger.log_tabular('Environment Interactions',
                            replay_buffer.stored_interactions())
-        logger.log_tabular('TestEpLen', with_min_and_max=True)
         logger.log_tabular('TestEpRet', with_min_and_max=True)
 
         logger.log_tabular('LossQ', with_min_and_max=False)
@@ -380,6 +391,10 @@ def mpo(env_fn,
         logger.log_tabular('EtaMean', with_min_and_max=False)
         logger.log_tabular('EtaCov', with_min_and_max=False)
         logger.log_tabular('Eta', with_min_and_max=False)
+        logger.log_tabular('QVal', with_min_and_max=True)
+        logger.log_tabular('OneStepRet', with_min_and_max=True)
+        logger.log_tabular('ActorMean', with_min_and_max=True)
+        logger.log_tabular('ActorCov', with_min_and_max=True)
 
         logger.log_tabular('Time', time.time() - start_time)
         logger.dump_tabular()

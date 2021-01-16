@@ -1,5 +1,6 @@
 from mpo_algorithm import core
 from mpo_algorithm.mpo import mpo
+from utils.report import create_graphs
 import argparse
 import torch
 import gym
@@ -15,7 +16,7 @@ if __name__ == "__main__":
     parser.add_argument('--l', type=int, default=2)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--seed', '-s', type=int, default=0)
-    parser.add_argument('--epochs', type=int, default=40)
+    parser.add_argument('--epochs', type=int, default=3)
     parser.add_argument('--exp_name', type=str, default='mpo')
     args = parser.parse_args()
 
@@ -39,5 +40,6 @@ if __name__ == "__main__":
         logger_kwargs=logger_kwargs
         )
 
-    # plot results in graph and safe to results
-    make_plots(["../results/"], yaxis='AverageTestEpRet')
+    create_graphs(logger_kwargs['output_dir'] + '/progress.txt', save_to=logger_kwargs['output_dir'],
+                  plot=[('Epoch', 'AverageTestEpRet'),
+                        ('Epoch', 'AverageEta')])

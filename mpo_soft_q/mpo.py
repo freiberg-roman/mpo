@@ -41,7 +41,7 @@ def mpo(env_fn,
         num_test_episodes=200,
         reward_scaling=lambda r: r,
         logger_kwargs=dict(),
-        update_every=50):
+        polyak=0.995):
     logger = EpochLogger(**logger_kwargs)
     logger.save_config(locals())
     max_traj = epochs * traj_update_count
@@ -202,10 +202,9 @@ def mpo(env_fn,
 
         return c_mean, c_cov
 
-    def update_q():
+    def update_q(rows, cols):
         opti_q.zero_grad()
 
-        rows, cols = replay_buffer.sample_idxs_batch()
         samples = replay_buffer.sample_batch(rows, cols)
 
         q1 = ac.q1(samples['state'], samples['action'])
@@ -307,10 +306,6 @@ def mpo(env_fn,
                     performed_trajectories += 1
                     break
 
-                # update q function
-                if performed_trajectories >= first_random_traj and ep_len % update_every == 0:
-                    update_q()
-
         # update eta by dual optimization
         for _ in range(10):
             rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_t * batch_s)
@@ -330,6 +325,7 @@ def mpo(env_fn,
         for k in tqdm(range(update_target_after), desc='updating policy'):
             # sample random batch
             rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
+            update_q(rows, cols)
             # perform gradient descent step
             targ_q_vals, cur_mean, cur_cov, targ_mean, targ_cov, act_samples = \
                 prep_data(rows, cols)
@@ -363,8 +359,8 @@ def mpo(env_fn,
         # use ugly hack until better option is found
         with torch.no_grad():
             for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
-                p_targ.data.mul_(0)
-                p_targ.data.add_(p)
+                p_targ.data.mul_(polyak)
+                p_targ.data.add_((1 - polyak) * p.data)
 
         # after each epoch evaluate performance of agent
         epoch += 1

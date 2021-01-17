@@ -23,7 +23,7 @@ def mpo(env_fn,
         gamma=0.99,
         epochs=2000,
         traj_update_count=20,
-        max_ep_len=1000,
+        max_ep_len=200,
         eps=0.1,
         eps_mean=0.1,
         eps_cov=0.0001,
@@ -33,7 +33,7 @@ def mpo(env_fn,
         batch_t=10,
         batch_s=768,
         batch_act=20,
-        len_rollout=1000,
+        len_rollout=1,
         init_eta=1.0,
         init_eta_mean=1.0,
         init_eta_cov=1.0,
@@ -41,7 +41,8 @@ def mpo(env_fn,
         num_test_episodes=200,
         reward_scaling=lambda r: r,
         logger_kwargs=dict(),
-        polyak=0.995):
+        polyak=0.995,
+        update_every=50):
     logger = EpochLogger(**logger_kwargs)
     logger.save_config(locals())
     max_traj = epochs * traj_update_count
@@ -306,61 +307,40 @@ def mpo(env_fn,
                     performed_trajectories += 1
                     break
 
-        # update eta by dual optimization
-        for _ in range(10):
-            rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_t * batch_s)
-            samples = replay_buffer.sample_batch(rows, cols)
-            states = samples['state']
+                if performed_trajectories >= first_random_traj and ep_len % update_every == 0:
+                    rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
+                    update_q(rows, cols)
+                    targ_q_vals, cur_mean, cur_cov, targ_mean, targ_cov, act_samples = \
+                        prep_data(rows, cols)
+                    update_eta(targ_q_vals)
+                    logger.store(QVal=targ_q_vals[0][0].item())
+                    # actor values can only be logged for pendulum !!!
+                    logger.store(ActorMean=cur_mean[0][0].item())
+                    logger.store(ActorCov=cur_cov[0][0].item())
 
-            targ_mean, targ_cov = ac_targ.pi.forward(states)
-            cur_mean, cur_cov = ac.pi.forward(states)
-            targ_act_samples, _ = ac_targ.pi.get_act(targ_mean,
-                                                     targ_cov,
-                                                     batch_act)
+                    c_mean, c_cov = update_eta_lagr(cur_mean,
+                                                    cur_cov,
+                                                    targ_mean,
+                                                    targ_cov)
+                    # updating pi
+                    opti_pi.zero_grad()
+                    loss_pi = compute_pi_loss(
+                        targ_q_vals,
+                        cur_mean,
+                        cur_cov,
+                        targ_mean,
+                        targ_cov,
+                        c_mean,
+                        c_cov,
+                        act_samples
+                    )
+                    loss_pi.backward()
+                    opti_pi.step()
 
-            states = states.expand((batch_act, batch_t * batch_s, s_dim))
-            targ_q_vals = torch.min(ac_targ.q1.forward(states, targ_act_samples),
-                                    ac_targ.q2.forward(states, targ_act_samples))
-            update_eta(targ_q_vals)
-        for k in tqdm(range(update_target_after), desc='updating policy'):
-            # sample random batch
-            rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
-            update_q(rows, cols)
-            # perform gradient descent step
-            targ_q_vals, cur_mean, cur_cov, targ_mean, targ_cov, act_samples = \
-                prep_data(rows, cols)
-
-            # log q and actor values
-            logger.store(QVal=targ_q_vals[0][0].item())
-            # actor values can only be logged for pendulum !!!
-            logger.store(ActorMean=cur_mean[0][0].item())
-            logger.store(ActorCov=cur_cov[0][0].item())
-
-            c_mean, c_cov = update_eta_lagr(cur_mean,
-                                            cur_cov,
-                                            targ_mean,
-                                            targ_cov)
-            # updating pi
-            opti_pi.zero_grad()
-            loss_pi = compute_pi_loss(
-                targ_q_vals,
-                cur_mean,
-                cur_cov,
-                targ_mean,
-                targ_cov,
-                c_mean,
-                c_cov,
-                act_samples
-            )
-            loss_pi.backward()
-            opti_pi.step()
-
-        # update target parameters
-        # use ugly hack until better option is found
-        with torch.no_grad():
-            for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
-                p_targ.data.mul_(polyak)
-                p_targ.data.add_((1 - polyak) * p.data)
+                    with torch.no_grad():
+                        for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
+                            p_targ.data.mul_(polyak)
+                            p_targ.data.add_((1 - polyak) * p.data)
 
         # after each epoch evaluate performance of agent
         epoch += 1

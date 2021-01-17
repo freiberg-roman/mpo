@@ -120,15 +120,16 @@ def mpo(env_fn,
                         c_cov,
                         samples_act  # (batch_act, batch_s, a_dim)
                         ):
-
-        dist_1 = Independent(Normal(cur_mean, targ_cov), 1)
-        dist_2 = Independent(Normal(targ_mean, cur_cov), 1)
+        exp_cur_mean = cur_mean.expand((batch_act, batch_s, a_dim))
+        exp_cur_cov = cur_cov.expand((batch_act, batch_s, a_dim))
+        exp_targ_mean = targ_mean.expand((batch_act, batch_s, a_dim))
+        exp_targ_cov = targ_cov.expand((batch_act, batch_s, a_dim))
 
         q_weights = torch.softmax(targ_q_vals / eta, dim=0)
         loss = torch.mean(
             q_weights * (
-                    dist_1.expand((batch_act, batch_s)).log_prob(samples_act) +
-                    dist_2.expand((batch_act, batch_s)).log_prob(samples_act)
+                    ac.pi.get_logp(exp_cur_mean, exp_targ_cov, samples_act) +
+                    ac.pi.get_logp(exp_targ_mean, exp_cur_cov, samples_act)
             ))
         combined_loss = -(loss + eta_mean * (eps_mean - c_mean) + eta_cov * (eps_cov - c_cov))
         logger.store(LossPi=combined_loss.item())
@@ -213,9 +214,7 @@ def mpo(env_fn,
 
         with torch.no_grad():
             cur_mean, cur_cov = ac.pi.forward(samples['state'])
-            cur_dist = ac.pi.get_dist(cur_mean, cur_cov, )
-            cur_act = cur_dist.sample()
-            cur_logp = cur_dist.log_prob(cur_act)
+            cur_act, cur_logp = ac.pi.get_act(cur_mean, cur_cov)
             q1_pi_targ = ac_targ.q1(samples['state'], cur_act)
             q2_pi_targ = ac_targ.q2(samples['state'], cur_act)
             q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
@@ -235,9 +234,9 @@ def mpo(env_fn,
 
         targ_mean, targ_cov = ac_targ.pi.forward(states)
         cur_mean, cur_cov = ac.pi.forward(states)
-        targ_act_samples, _ = ac_targ.pi.get_act(targ_mean,
-                                                 targ_cov,
-                                                 batch_act)
+        exp_targ_mean = targ_mean.expand((batch_act, batch_s, a_dim))
+        exp_targ_cov = targ_cov.expand((batch_act, batch_s, a_dim))
+        targ_act_samples, _ = ac_targ.pi.get_act(exp_targ_mean, exp_targ_cov)
 
         states = states.expand((batch_act, batch_s, s_dim))
         targ_q_vals = torch.min(ac_targ.q1.forward(states, targ_act_samples),
@@ -283,9 +282,8 @@ def mpo(env_fn,
                     a = env.action_space.sample()
                     mu_rand, cov_rand = ac_targ.pi.forward(
                         torch.as_tensor(s, dtype=torch.float32, device=local_device))
-                    logp = ac_targ.pi.get_dist(
-                        mu_rand, cov_rand).log_prob(
-                        torch.as_tensor(a, dtype=torch.float32, device=local_device))
+                    logp = ac_targ.pi.get_logp(
+                        mu_rand, cov_rand, torch.as_tensor(a, dtype=torch.float32, device=local_device))
                 else:
                     # action from current policy
                     a, logp = get_action(s)

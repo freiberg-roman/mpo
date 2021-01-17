@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from torch.distributions.normal import Normal
 from torch.distributions.independent import Independent
+import torch.nn.functional as F
 
 
 def combined_shape(length, shape=None):
@@ -29,39 +30,45 @@ class GaussianMLPActor(nn.Module):
         super().__init__()
         state_dim = env.observation_space.shape[0]
         act_dim = env.action_space.shape[0]
+        self.act_limit = env.action_space.high[0]
         self.env = env
         self.net = mlp([state_dim] + list(hidden_sizes), activation, activation)
         self.mu_layer = nn.Linear(hidden_sizes[-1], act_dim)
         self.std_layer = nn.Linear(hidden_sizes[-1], act_dim)
 
     def forward(self, state):
-        act_lim_low = torch.from_numpy(
-            # self.env.action_space.low)[None, ...].to("cuda:0")
-            self.env.action_space.low)[None, ...]
-        act_lim_high = torch.from_numpy(
-            # self.env.action_space.high)[None, ...].to("cuda:0")
-            self.env.action_space.high)[None, ...]
         net_out = self.net(state)
-        mu = torch.sigmoid(self.mu_layer(net_out))
+        mu = self.mu_layer(net_out)
         # enforce bounds on mu
-        mu = act_lim_low + (act_lim_high - act_lim_low) * mu
         std = self.std_layer(net_out)
         soft_plus_std = torch.log(torch.exp(std) + 1)
         covariance = soft_plus_std ** 2
         return mu, covariance
 
-    def get_dist(self, mean, cov):
-        pi_distribution = Independent(Normal(mean, cov), 1)
-        return pi_distribution
+    def get_logp(self, mean, cov, pi_action):
+        # inverse scaling
+        torch.atanh(pi_action / self.act_limit)
 
-    def get_act(self, mean,  # (batch_s, act_dim)
-                cov, n, deterministic=False):
+        pi_dist = Normal(mean, cov)
+        logp_pi = pi_dist.log_prob(pi_action).sum(axis=-1)  # sum up by action dimension
+        logp_pi -= (2 * (np.log(2) - pi_action - F.softplus(-2 * pi_action))).sum(axis=-1)
+
+        return logp_pi
+
+    def get_act(self, mean,  # (..., act_dim)
+                cov, deterministic=False):
+        pi_dist = Normal(mean, cov)
         if deterministic:
-            return mean.repeat(n, 1), None
+            pi_action = mean
+            return torch.tanh(pi_action) * self.act_limit, None
+        else:
+            pi_action = pi_dist.rsample()
+            logp_pi = pi_dist.log_prob(pi_action).sum(axis=-1)  # sum up by action dimension
+            logp_pi -= (2*(np.log(2) - pi_action - F.softplus(-2*pi_action))).sum(axis=-1)
 
-        pi_distribution = Independent(Normal(mean, cov), 1)
-        actions = pi_distribution.expand((n, mean.shape[0])).rsample()
-        return actions, pi_distribution.log_prob(actions)
+        pi_action = torch.tanh(pi_action) * self.act_limit
+
+        return pi_action, logp_pi
 
 
 class MLPQFunction(nn.Module):
@@ -92,5 +99,5 @@ class MLPActorCritic(nn.Module):
     def act(self, obs, deterministic=False):
         with torch.no_grad():
             mu, cov = self.pi(torch.squeeze(obs))
-            a, logp_pi = self.pi.get_act(mu, cov, 1, deterministic=deterministic)
+            a, logp_pi = self.pi.get_act(mu, cov, deterministic=deterministic)
             return a.cpu().numpy(), logp_pi

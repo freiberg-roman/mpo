@@ -30,7 +30,7 @@ def mpo(env_fn,
         lr=0.0005,
         lr_lagr=0.0005,
         alpha=0.1,
-        batch_t=10,
+        batch_q=100,
         batch_s=768,
         batch_act=20,
         len_rollout=1,
@@ -164,7 +164,7 @@ def mpo(env_fn,
                          ):
 
         q_weights = torch.softmax(targ_q_vals / eta, dim=0)
-        samples_act_weighted = q_weights * samples_act
+        samples_act_weighted = q_weights.unsqueeze(dim=1) * samples_act
         loss = torch.mean(
             ac.pi.get_logp(cur_mean, cur_cov, samples_act_weighted)
         )
@@ -324,15 +324,16 @@ def mpo(env_fn,
 
                 if performed_trajectories >= 5 and ep_len % update_every == 0:
                     for j in range(inner_updates):
-                        rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
+                        rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_q)
                         update_q(rows, cols)
-                        targ_q_vals, _, _, _, _, _ = \
-                            prep_data(rows, cols)
 
                         with torch.no_grad():
                             for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
                                 p_targ.data.mul_(polyak)
                                 p_targ.data.add_((1 - polyak) * p.data)
+                    rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
+                    targ_q_vals, _, _, _, _, _ = \
+                        prep_data(rows, cols)
                     update_eta(targ_q_vals)
 
         # update policy

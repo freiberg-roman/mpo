@@ -331,7 +331,7 @@ def mpo(env_fn,
                                             targ_cov)
             # updating pi
             opti_pi.zero_grad()
-            loss_pi = compute_pi_loss(
+            loss_pi = compute_pi_loss2(
                 targ_q_vals,
                 cur_mean,
                 cur_cov,
@@ -344,10 +344,10 @@ def mpo(env_fn,
             loss_pi.backward()
             opti_pi.step()
 
-        with torch.no_grad():
-            for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
-                p_targ.data.mul_(0)
-                p_targ.data.add_(p.data)
+            with torch.no_grad():
+                for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
+                    p_targ.data.mul_(0)
+                    p_targ.data.add_(p.data)
 
         # after each epoch evaluate performance of agent
         epoch += 1

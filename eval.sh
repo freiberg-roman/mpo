@@ -1,3 +1,3 @@
 pip install -e .
 cd eval
-python eval_sac.py
+python eval_mpo_soft_q.py

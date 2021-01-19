@@ -47,7 +47,7 @@ class GaussianMLPActor(nn.Module):
         # invert scaling
         pi_action = torch.atanh(pi_action / self.act_limit)
 
-        pi_dist = Normal(mean, cov)
+        pi_dist = Normal(mean, torch.sqrt(cov))
         logp_pi = pi_dist.log_prob(pi_action).sum(axis=-1)  # sum up by action dimension
         logp_pi -= (2 * (np.log(2) - pi_action - F.softplus(-2 * pi_action))).sum(axis=-1)
 
@@ -55,7 +55,7 @@ class GaussianMLPActor(nn.Module):
 
     def get_act(self, mean,  # (..., act_dim)
                 cov, deterministic=False):
-        pi_dist = Normal(mean, cov)
+        pi_dist = Normal(mean, torch.sqrt(cov))
         if deterministic:
             pi_action = mean
             return torch.tanh(pi_action) * self.act_limit, None
@@ -88,10 +88,8 @@ class MLPActorCritic(nn.Module):
         super().__init__()
 
         self.pi = GaussianMLPActor(env, hidden_sizes_pi, activation)
-        # self.pi = GaussianMLPActor(env, hidden_sizes_pi, activation).cuda()
         self.q1 = MLPQFunction(env, hidden_sizes_q, activation)
         self.q2 = MLPQFunction(env, hidden_sizes_q, activation)
-        # self.q = MLPQFunction(env, hidden_sizes_q, activation).cuda()
 
     def act(self, obs, deterministic=False):
         with torch.no_grad():

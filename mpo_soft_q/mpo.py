@@ -153,6 +153,25 @@ def mpo(env_fn,
         logger.store(LossPi=combined_loss.item())
         return combined_loss
 
+    def compute_pi_loss3(targ_q_vals,  # (batch_act, batch_s)
+                         cur_mean,  # (batch_s, a_dim)
+                         cur_cov,
+                         targ_mean,
+                         targ_cov,
+                         c_mean,
+                         c_cov,
+                         samples_act  # (batch_act, batch_s, a_dim)
+                         ):
+
+        q_weights = torch.softmax(targ_q_vals / eta, dim=0)
+        samples_act_weighted = q_weights * samples_act
+        loss = torch.mean(
+            ac.pi.get_logp(cur_mean, cur_cov, samples_act_weighted)
+        )
+        combined_loss = -(loss + eta_mean * (eps_mean - c_mean) + eta_cov * (eps_cov - c_cov))
+        logger.store(LossPi=combined_loss.item())
+        return combined_loss
+
     # setting up Adam Optimizer for gradient descent with momentum
     opti_q = Adam(q_params, lr=lr)
     opti_pi = Adam(ac.pi.parameters(), lr=lr)
@@ -331,7 +350,7 @@ def mpo(env_fn,
                                             targ_cov)
             # updating pi
             opti_pi.zero_grad()
-            loss_pi = compute_pi_loss2(
+            loss_pi = compute_pi_loss3(
                 targ_q_vals,
                 cur_mean,
                 cur_cov,
@@ -344,10 +363,10 @@ def mpo(env_fn,
             loss_pi.backward()
             opti_pi.step()
 
-            with torch.no_grad():
-                for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
-                    p_targ.data.mul_(0)
-                    p_targ.data.add_(p.data)
+        with torch.no_grad():
+            for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
+                p_targ.data.mul_(0)
+                p_targ.data.add_(p.data)
 
         # after each epoch evaluate performance of agent
         epoch += 1

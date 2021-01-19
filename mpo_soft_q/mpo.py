@@ -112,7 +112,7 @@ def mpo(env_fn,
         return c_mean, c_cov
 
     def compute_pi_loss(targ_q_vals,  # (batch_act, batch_s)
-                        cur_mean,  # (batch_s,)
+                        cur_mean,  # (batch_s, a_dim)
                         cur_cov,
                         targ_mean,
                         targ_cov,
@@ -136,7 +136,7 @@ def mpo(env_fn,
         return combined_loss
 
     def compute_pi_loss2(targ_q_vals,  # (batch_act, batch_s)
-                         cur_mean,  # (batch_s,)
+                         cur_mean,  # (batch_s, a_dim)
                          cur_cov,
                          targ_mean,
                          targ_cov,
@@ -145,13 +145,10 @@ def mpo(env_fn,
                          samples_act  # (batch_act, batch_s, a_dim)
                          ):
 
-        cur_dist = Independent(Normal(cur_mean, cur_cov), 1)
-
         q_weights = torch.softmax(targ_q_vals / eta, dim=0)
-        samples_act_weighted = q_weights.unsqueeze(1) * samples_act
         # todo add clip
         loss = torch.mean(
-            cur_dist.expand((batch_act, batch_s)).log_prob(samples_act_weighted)
+            q_weights * ac.pi.get_logp(cur_mean, cur_cov, samples_act)
         )
         combined_loss = -(loss + eta_mean * (eps_mean - c_mean) + eta_cov * (eps_cov - c_cov))
         logger.store(LossPi=combined_loss.item())
@@ -214,11 +211,11 @@ def mpo(env_fn,
 
         with torch.no_grad():
             cur_mean, cur_cov = ac.pi.forward(samples['state'])
-            cur_act, cur_logp = ac.pi.get_act(cur_mean, cur_cov)
+            cur_act, _ = ac.pi.get_act(cur_mean, cur_cov)
             q1_pi_targ = ac_targ.q1(samples['state'], cur_act)
             q2_pi_targ = ac_targ.q2(samples['state'], cur_act)
             q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
-            backup = samples['reward'] * (1 - samples['done']) * (q_pi_targ - alpha * cur_logp)
+            backup = samples['reward'] + gamma * (1 - samples['done']) * q_pi_targ
 
         loss_q1 = ((q1 - backup) ** 2).mean()
         loss_q2 = ((q2 - backup) ** 2).mean()
@@ -227,6 +224,8 @@ def mpo(env_fn,
         loss_q.backward()
         opti_q.step()
         logger.store(LossQ=loss_q.item())
+        logger.store(Q1Vals=q1.detach().numpy())
+        logger.store(Q2Vals=q2.detach().numpy())
 
     def prep_data(rows, cols):
         samples = replay_buffer.sample_batch(rows, cols)
@@ -308,10 +307,9 @@ def mpo(env_fn,
                 if performed_trajectories >= first_random_traj and ep_len % update_every == 0:
                     rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
                     update_q(rows, cols)
-                    targ_q_vals, cur_mean, cur_cov, targ_mean, targ_cov, act_samples = \
+                    targ_q_vals, cur_mean, cur_cov, targ_mean, targ_cov, samples_act = \
                         prep_data(rows, cols)
                     update_eta(targ_q_vals)
-                    logger.store(QVal=targ_q_vals[0][0].item())
                     # actor values can only be logged for pendulum !!!
                     logger.store(ActorMean=cur_mean[0][0].item())
                     logger.store(ActorCov=cur_cov[0][0].item())
@@ -322,7 +320,7 @@ def mpo(env_fn,
                                                     targ_cov)
                     # updating pi
                     opti_pi.zero_grad()
-                    loss_pi = compute_pi_loss(
+                    loss_pi = compute_pi_loss2(
                         targ_q_vals,
                         cur_mean,
                         cur_cov,
@@ -330,7 +328,7 @@ def mpo(env_fn,
                         targ_cov,
                         c_mean,
                         c_cov,
-                        act_samples
+                        samples_act
                     )
                     loss_pi.backward()
                     opti_pi.step()
@@ -361,7 +359,8 @@ def mpo(env_fn,
         logger.log_tabular('EtaMean', with_min_and_max=False)
         logger.log_tabular('EtaCov', with_min_and_max=False)
         logger.log_tabular('Eta', with_min_and_max=False)
-        logger.log_tabular('QVal', with_min_and_max=True)
+        logger.log_tabular('Q1Vals', with_min_and_max=True)
+        logger.log_tabular('Q2Vals', with_min_and_max=True)
         logger.log_tabular('OneStepRet', with_min_and_max=True)
         logger.log_tabular('ActorMean', with_min_and_max=True)
         logger.log_tabular('ActorCov', with_min_and_max=True)

@@ -33,21 +33,19 @@ class GaussianMLPActor(nn.Module):
         self.act_limit = env.action_space.high[0]
         self.env = env
         self.net = mlp([state_dim] + list(hidden_sizes), activation, activation)
-        self.mu_layer = nn.Linear(hidden_sizes[-1], act_dim)
+        self.mean_layer = nn.Linear(hidden_sizes[-1], act_dim)
         self.std_layer = nn.Linear(hidden_sizes[-1], act_dim)
 
     def forward(self, state):
         net_out = self.net(state)
-        mu = self.mu_layer(net_out)
-        # enforce bounds on mu
+        mean = self.mean_layer(net_out)
         std = self.std_layer(net_out)
-        soft_plus_std = torch.log(torch.exp(std) + 1)
-        covariance = soft_plus_std ** 2
-        return mu, covariance
+        cov = F.softplus(std) ** 2
+        return mean, cov
 
     def get_logp(self, mean, cov, pi_action):
-        # inverse scaling
-        torch.atanh(pi_action / self.act_limit)
+        # invert scaling
+        pi_action = torch.atanh(pi_action / self.act_limit)
 
         pi_dist = Normal(mean, cov)
         logp_pi = pi_dist.log_prob(pi_action).sum(axis=-1)  # sum up by action dimension
@@ -67,7 +65,6 @@ class GaussianMLPActor(nn.Module):
             logp_pi -= (2*(np.log(2) - pi_action - F.softplus(-2*pi_action))).sum(axis=-1)
 
         pi_action = torch.tanh(pi_action) * self.act_limit
-
         return pi_action, logp_pi
 
 

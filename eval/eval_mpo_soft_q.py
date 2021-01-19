@@ -15,7 +15,7 @@ if __name__ == "__main__":
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--epochs', type=int, default=40)
-    parser.add_argument('--exp_name', type=str, default='mpo')
+    parser.add_argument('--exp_name', type=str, default='mpo_soft')
     args = parser.parse_args()
 
     from utils.run_utils import setup_logger_kwargs

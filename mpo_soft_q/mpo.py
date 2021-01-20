@@ -165,8 +165,10 @@ def mpo(env_fn,
 
         q_weights = torch.softmax(targ_q_vals / eta, dim=0)
         samples_act_weighted = q_weights.unsqueeze(dim=1) * samples_act
+        exp_cur_mean = cur_mean.expand((batch_act, batch_s, a_dim))
+        exp_cur_cov = cur_cov.expand((batch_act, batch_s, a_dim))
         loss = torch.mean(
-            ac.pi.get_logp(cur_mean, cur_cov, samples_act_weighted)
+            ac.pi.get_logp(exp_cur_mean, exp_cur_cov, samples_act_weighted)
         )
         combined_loss = -(loss + eta_mean * (eps_mean - c_mean) + eta_cov * (eps_cov - c_cov))
         logger.store(LossPi=combined_loss.item())
@@ -328,7 +330,10 @@ def mpo(env_fn,
                         update_q(rows, cols)
 
                         with torch.no_grad():
-                            for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
+                            for p, p_targ in zip(ac.q1.parameters(), ac_targ.q1.parameters()):
+                                p_targ.data.mul_(polyak)
+                                p_targ.data.add_((1 - polyak) * p.data)
+                            for p, p_targ in zip(ac.q2.parameters(), ac_targ.q2.parameters()):
                                 p_targ.data.mul_(polyak)
                                 p_targ.data.add_((1 - polyak) * p.data)
                     rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
@@ -365,7 +370,7 @@ def mpo(env_fn,
             opti_pi.step()
 
         with torch.no_grad():
-            for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
+            for p, p_targ in zip(ac.pi.parameters(), ac_targ.pi.parameters()):
                 p_targ.data.mul_(0)
                 p_targ.data.add_(p.data)
 

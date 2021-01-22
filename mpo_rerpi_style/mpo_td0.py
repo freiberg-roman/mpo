@@ -324,8 +324,10 @@ def mpo_td(env_fn,
                 with torch.no_grad():
                     for p, p_targ in zip(ac.q1.parameters(), ac_targ.q1.parameters()):
                         p_targ.data.mul_(polyak)
+                        p_targ.data.add_((1 - polyak) * p.data)
                     for p, p_targ in zip(ac.q2.parameters(), ac_targ.q2.parameters()):
-                        p_targ.data.add((1-polyak)*p.data)
+                        p_targ.data.mul_(polyak)
+                        p_targ.data.add_((1 - polyak) * p.data)
 
         for run in tqdm(range(runs_update_pi), desc='update policy'):
             opti_pi.zero_grad()

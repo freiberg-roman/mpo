@@ -20,14 +20,15 @@ def mpo_sac(env_fn,
         seed=0,
         gamma=0.99,
         epochs=2000,
-        traj_update_count=20,
+        traj_update_count=200,
         max_ep_len=200,
         eps=0.1,
         eps_mean=0.1,
         eps_cov=0.0001,
-        lr=0.0005,
+        lr_pi=0.0005,
+        lr_q=0.0001,
         alpha=0.2,
-        batch_t=1,  # sampled trajectories per learning step
+        batch_t=10,  # sampled trajectories per learning step
         batch_act=20,  # additional samples for integral estimation
         len_rollout=200,
         init_eta=0.5,
@@ -88,9 +89,9 @@ def mpo_sac(env_fn,
 
 
     # setting up Adam Optimizer for gradient descent with momentum
-    opti_q = Adam(ac.q.parameters(), lr=0.0003)
+    opti_q = Adam(ac.q.parameters(), lr=lr_q)
     # learn eta and policy parameters together
-    opti_pi = Adam(itertools.chain(ac.pi.parameters()), lr=0.0005)
+    opti_pi = Adam(itertools.chain(ac.pi.parameters()), lr=lr_pi)
 
     # set up logger to save model after each epoch
 
@@ -135,7 +136,7 @@ def mpo_sac(env_fn,
         exp_targ_q = torch.transpose(exp_targ_q, 0, 1)
 
         targ_act_logp = ac_targ.pi.get_logp(targ_mean, targ_std, samples['action'])
-        targ_act_logp = torch.transpose(targ_act_logp, 0 ,1)
+        targ_act_logp = torch.transpose(targ_act_logp, 0, 1)
 
         retrace = Retrace()
         loss_q = retrace(Q=batch_q,
@@ -199,7 +200,7 @@ def mpo_sac(env_fn,
             writer.add_scalar('test_episode_ret', ep_ret, run * num_test_episodes + j)
 
     def sample_traj(perform_traj=1, random_act=False):
-        for _ in range(perform_traj):
+        for _ in tqdm(range(perform_traj), desc='sample trajectories'):
 
             # sample steps
             s, ep_ret, ep_len = env.reset(), 0, 0

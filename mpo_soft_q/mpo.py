@@ -1,4 +1,5 @@
 from copy import deepcopy
+from torch.nn.utils import clip_grad_norm_
 import numpy as np
 from scipy.optimize import minimize
 import itertools
@@ -106,7 +107,7 @@ def mpo(env_fn,
         log_det = (current_det / target_det).log()
         c_mean = 0.5 * (combined_trace - n + log_det).mean()
 
-        dif = targ_mean - cur_mean
+        dif = cur_mean - targ_mean
         c_cov = 0.5 * (((dif ** 2) * (1 / cur_cov)).sum(dim=1)).mean()
 
         return c_mean, c_cov
@@ -205,10 +206,10 @@ def mpo(env_fn,
         nonlocal eta_cov
         c_mean, c_cov = compute_lagr_loss(cur_mean, cur_cov, targ_mean, targ_cov)
 
-        loss_eta_mean = lr_lagr * (eps_mean - c_mean).detach().item()
+        loss_eta_mean = lr_lagr * (eps_mean - c_mean.detach()).detach().item()
         eta_mean -= loss_eta_mean
 
-        loss_eta_cov = lr_lagr * (eps_cov - c_cov).detach().item()
+        loss_eta_cov = lr_lagr * (eps_cov - c_cov.detach()).detach().item()
         eta_cov -= loss_eta_cov
 
         eta_mean = max(1e-8, eta_mean)
@@ -356,7 +357,7 @@ def mpo(env_fn,
                                             targ_cov)
             # updating pi
             opti_pi.zero_grad()
-            loss_pi = compute_pi_loss3(
+            loss_pi = compute_pi_loss(
                 targ_q_vals,
                 cur_mean,
                 cur_cov,
@@ -367,6 +368,7 @@ def mpo(env_fn,
                 samples_act
             )
             loss_pi.backward()
+            clip_grad_norm_(ac.pi.parameters(), 5.0)
             opti_pi.step()
 
         with torch.no_grad():

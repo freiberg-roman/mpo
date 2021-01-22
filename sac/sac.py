@@ -3,6 +3,7 @@ import itertools
 import numpy as np
 import torch
 from torch.optim import Adam
+from torch.utils.tensorboard import SummaryWriter
 import gym
 import time
 import sac.core as core
@@ -44,8 +45,7 @@ class ReplayBuffer:
 def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=100, replay_size=int(1e6), gamma=0.99,
         polyak=0.995, lr=1e-3, alpha=0.2, batch_size=100, start_steps=10000,
-        update_after=1000, update_every=50, num_test_episodes=10, max_ep_len=1000,
-        logger_kwargs=dict(), save_freq=1):
+        update_after=1000, update_every=50, num_test_episodes=10, max_ep_len=1000, save_freq=1):
     """
     Soft Actor-Critic (SAC)
     Args:
@@ -116,10 +116,7 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         save_freq (int): How often (in terms of gap between epochs) to save
             the current policy and value function.
     """
-    updates = 0
-
-    logger = EpochLogger(**logger_kwargs)
-    logger.save_config(locals())
+    writer = SummaryWriter(comment='SAC_TD_ENTROPY')
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -147,10 +144,10 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Count variables (protip: try to get a feel for how different size networks behave!)
     var_counts = tuple(core.count_vars(module) for module in [ac.pi, ac.q1, ac.q2])
-    logger.log('\nNumber of parameters: \t pi: %d, \t q1: %d, \t q2: %d\n' % var_counts)
+    print('\nNumber of parameters: \t pi: %d, \t q1: %d, \t q2: %d\n' % var_counts)
 
     # Set up function for computing SAC Q-losses
-    def compute_loss_q(data):
+    def compute_loss_q(data, run):
         o, a, r, o2, d = data['obs'], data['act'], data['rew'], data['obs2'], data['done']
 
         q1 = ac.q1(o, a)
@@ -173,13 +170,16 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         loss_q = loss_q1 + loss_q2
 
         # Useful info for logging
-        q_info = dict(Q1Vals=q1.detach().numpy(),
-                      Q2Vals=q2.detach().numpy())
+        writer.add_scalar('q_loss', loss_q.item(), run)
+        writer.add_scalar('q1_mean', q1.detach().numpy().mean(), run)
+        writer.add_scalar('q2_mean', q2.detach().numpy().mean(), run)
+        writer.add_scalar('q1_min', q1.detach().numpy().min(), run)
+        writer.add_scalar('q1_max', q2.detach().numpy().max(), run)
 
-        return loss_q, q_info
+        return loss_q
 
     # Set up function for computing SAC pi loss
-    def compute_loss_pi(data):
+    def compute_loss_pi(data, run):
         o = data['obs']
         pi, logp_pi = ac.pi(o)
         q1_pi = ac.q1(o, pi)
@@ -190,26 +190,23 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         loss_pi = (alpha * logp_pi - q_pi).mean()
 
         # Useful info for logging
-        pi_info = dict(LogPi=logp_pi.detach().numpy())
+        writer.add_scalar('loss_pi', loss_pi.item(), run)
+        writer.add_scalar('logp_pi', logp_pi.detach().numpy().mean(), run)
 
-        return loss_pi, pi_info
+        return loss_pi
 
     # Set up optimizers for policy and q-function
     pi_optimizer = Adam(ac.pi.parameters(), lr=lr)
     q_optimizer = Adam(q_params, lr=lr)
 
     # Set up model saving
-    logger.setup_pytorch_saver(ac)
 
-    def update(data):
+    def update(data, run):
         # First run one gradient descent step for Q1 and Q2
         q_optimizer.zero_grad()
-        loss_q, q_info = compute_loss_q(data)
+        loss_q = compute_loss_q(data, run)
         loss_q.backward()
         q_optimizer.step()
-
-        # Record things
-        logger.store(LossQ=loss_q.item(), **q_info)
 
         # Freeze Q-networks so you don't waste computational effort
         # computing gradients for them during the policy learning step.
@@ -218,7 +215,7 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # Next run one gradient descent step for pi.
         pi_optimizer.zero_grad()
-        loss_pi, pi_info = compute_loss_pi(data)
+        loss_pi = compute_loss_pi(data, run)
         loss_pi.backward()
         pi_optimizer.step()
 
@@ -226,14 +223,9 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         for p in q_params:
             p.requires_grad = True
 
-        # Record things
-        logger.store(LossPi=loss_pi.item(), **pi_info)
-
         # Finally, update target networks by polyak averaging.
         with torch.no_grad():
             for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
-                # NB: We use an in-place operations "mul_", "add_" to update target
-                # params, as opposed to "mul" and "add", which would make new tensors.
                 p_targ.data.mul_(polyak)
                 p_targ.data.add_((1 - polyak) * p.data)
 
@@ -241,7 +233,7 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         return ac.act(torch.as_tensor(o, dtype=torch.float32),
                       deterministic)
 
-    def test_agent():
+    def test_agent(run):
         for j in range(num_test_episodes):
             o, d, ep_ret, ep_len = test_env.reset(), False, 0, 0
             while not (d or (ep_len == max_ep_len)):
@@ -249,12 +241,13 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 o, r, d, _ = test_env.step(get_action(o, True))
                 ep_ret += r
                 ep_len += 1
-            logger.store(TestEpRet=ep_ret, TestEpLen=ep_len)
+            writer.add_scalar('TestEpRet', ep_ret, num_test_episodes*run + j)
 
     # Prepare for interaction with environment
     total_steps = steps_per_epoch * epochs
     start_time = time.time()
     o, ep_ret, ep_len = env.reset(), 0, 0
+    run = 0
 
     # Main loop: collect experience in env and update/log each epoch
     for t in range(total_steps):
@@ -286,39 +279,22 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # End of trajectory handling
         if d or (ep_len == max_ep_len):
-            logger.store(EpRet=ep_ret, EpLen=ep_len)
             o, ep_ret, ep_len = env.reset(), 0, 0
 
         # Update handling
         if t >= update_after and t % update_every == 0:
             for j in range(update_every):
-                updates += 1
                 batch = replay_buffer.sample_batch(batch_size)
-                update(data=batch)
+                update(batch, update_every*run + j)
+            run += 1
 
         # End of epoch handling
         if (t + 1) % steps_per_epoch == 0:
             epoch = (t + 1) // steps_per_epoch
 
             # Save model
-            if (epoch % save_freq == 0) or (epoch == epochs):
-                logger.save_state({'env': env}, None)
-
             # Test the performance of the deterministic version of the agent.
-            test_agent()
-            print(updates)
+            test_agent(epoch)
+            writer.flush()
+            print('epoch done')
 
-            # Log info about epoch
-            logger.log_tabular('Epoch', epoch)
-            logger.log_tabular('EpRet', with_min_and_max=True)
-            logger.log_tabular('TestEpRet', with_min_and_max=True)
-            logger.log_tabular('EpLen', average_only=True)
-            logger.log_tabular('TestEpLen', average_only=True)
-            logger.log_tabular('TotalEnvInteracts', t)
-            logger.log_tabular('Q1Vals', with_min_and_max=True)
-            logger.log_tabular('Q2Vals', with_min_and_max=True)
-            logger.log_tabular('LogPi', with_min_and_max=True)
-            logger.log_tabular('LossPi', average_only=True)
-            logger.log_tabular('LossQ', average_only=True)
-            logger.log_tabular('Time', time.time() - start_time)
-            logger.dump_tabular()

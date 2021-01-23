@@ -2,44 +2,46 @@ from copy import deepcopy
 import numpy as np
 import itertools
 import torch
+from torch.distributions import Independent
+from torch.distributions.normal import Normal
 from torch.optim import Adam
 import time
-from mpo_sac import tanh_core
+from mpo_retrace import core
 from torch.utils.tensorboard import SummaryWriter
-from mpo_sac.tray_dyn_buf import DynamicTrajectoryBuffer
+from mpo_retrace.tray_dyn_buf import DynamicTrajectoryBuffer
 from tqdm import tqdm
-from mpo_sac.retrace import Retrace
-from torch.distributions.normal import Normal
+from mpo_retrace.retrace import Retrace
 
 local_device = "cpu"
 
 
-def mpo_sac(env_fn,
-            actor_critic=tanh_core.MLPActorCritic,
-            ac_kwargs=dict(),
-            seed=0,
-            gamma=0.99,
-            epochs=2000,
-            traj_update_count=20,
-            max_ep_len=200,
-            eps=0.1,
-            eps_mean=0.1,
-            eps_cov=0.0001,
-            lr_pi=5e-4,
-            lr_q=2e-4,
-            alpha=0.2,
-            batch_t=2,  # sampled trajectories per learning step
-            batch_act=20,  # additional samples for integral estimation
-            len_rollout=200,
-            init_eta=0.5,
-            init_eta_mean=1.0,
-            init_eta_cov=1.0,
-            learning_steps=1000,
-            update_targ_nets_after=200,
-            num_test_episodes=50,
-            polyak=0.995,
-            reward_scaling=lambda r: r):
-    writer = SummaryWriter(comment='MPO_RETRACE_ENT_LOSS_polyak_pi_multiple')
+def mpo_retrace(env_fn,
+        actor_critic=core.MLPActorCritic,
+        ac_kwargs=dict(),
+        seed=0,
+        gamma=0.99,
+        epochs=2000,
+        traj_update_count=20,
+        max_ep_len=200,
+        eps=0.1,
+        eps_mean=0.1,
+        eps_cov=0.0001,
+        lr_pi=5e-4,
+        lr_q=2e-4,
+        alpha=5e-4,
+        batch_t=1,  # sampled trajectories per learning step
+        batch_s=200,
+        batch_act=20,  # additional samples for integral estimation
+        len_rollout=200,
+        init_eta=5.,
+        init_eta_mean=10.0,
+        init_eta_cov=10.0,
+        learning_steps=1000,
+        update_targ_nets_after=200,
+        num_test_episodes=200,
+        polyak=0.995,
+        reward_scaling=lambda r: r):
+    writer = SummaryWriter(comment='MPO_RETRACE_NO_POLYAK_NO_TRUST_REGION')
 
     # seeds for testing
     torch.manual_seed(seed)
@@ -85,13 +87,14 @@ def mpo_sac(env_fn,
                                             local_device)
 
     # counting variables
-    var_counts = tuple(tanh_core.count_vars(module) for module in [ac.pi, ac.q])
+    var_counts = tuple(core.count_vars(module) for module in [ac.pi, ac.q])
     print('\nNumber of parameters: \t pi: %d, \t q1: %d\n' % var_counts)
+
 
     # setting up Adam Optimizer for gradient descent with momentum
     opti_q = Adam(ac.q.parameters(), lr=lr_q)
     # learn eta and policy parameters together
-    opti_pi = Adam(ac.pi.parameters(), lr=lr_pi)
+    opti_pi = Adam(itertools.chain(ac.pi.parameters(), [eta]), lr=lr_pi)
 
     def loss_q_retrace(samples, run):
         batch_q = ac.q.forward(samples['state'], samples['action'])
@@ -124,17 +127,83 @@ def mpo_sac(env_fn,
 
         return loss_q
 
-    def loss_pi_sac(samples, run):
+    def compute_lagr_loss(cur_mean, cur_std, targ_mean, targ_std):
+        # dimensions to be (batch_s, a_dim)
+        n = a_dim
+        cur_cov = cur_std ** 2
+        targ_cov = targ_std ** 2
 
+        combined_trace = ((1 / cur_cov) * targ_cov).sum(dim=1)
+        target_det = targ_cov.prod(dim=1)
+        current_det = cur_cov.prod(dim=1)
+        log_det = (current_det / target_det).log()
+        c_mean = 0.5 * (combined_trace - n + log_det).mean()
+
+        dif = cur_mean - targ_mean
+        c_cov = 0.5 * (((dif ** 2) * (1 / cur_cov)).sum(dim=1)).mean()
+
+        return c_mean, c_cov
+
+    def loss_pi_mpo(samples, run):
+        targ_mean, targ_std = ac_targ.pi.forward(samples['state'])
+        exp_targ_mean = targ_mean.expand((batch_act, batch_s, a_dim))
+        exp_targ_std = targ_std.expand((batch_act, batch_s, a_dim))
+        targ_act, targ_logp = ac_targ.pi.get_act(exp_targ_mean, exp_targ_std) # get additional action samples
+
+        writer.add_scalar('pi_logp', targ_logp.detach().numpy().mean(), run)
+
+        exp_state = samples['state'].expand((batch_act, batch_s, s_dim))
+        targ_q = ac_targ.q.forward(exp_state, targ_act)
+
+        q_weights = torch.softmax(targ_q / eta.detach(), dim=0)
         cur_mean, cur_std = ac.pi.forward(samples['state'])
-        cur_act, cur_act_logp = ac.pi.get_act(cur_mean, cur_std)
-        cur_q = ac.q.forward(samples['state'], cur_act)
+        pi_dist_1 = Independent(Normal(cur_mean, targ_std), reinterpreted_batch_ndims=a_dim)
+        pi_dist_2 = Independent(Normal(targ_mean, cur_std), reinterpreted_batch_ndims=a_dim)
 
-        loss_pi = (alpha * cur_act_logp - cur_q).mean()
+        loss_p = torch.mean(
+            q_weights * (
+                pi_dist_1.expand((batch_act, batch_s)).log_prob(targ_act) +
+                pi_dist_2.expand((batch_act, batch_s)).log_prob(targ_act)
+            )
+        )
+        writer.add_scalar('pi_loss', -(loss_p.detach().numpy().mean()), run)
 
-        writer.add_scalar('pi_loss', loss_pi.item(), run)
-        writer.add_scalar('pi_logp', cur_act_logp.detach().numpy().mean(), run)
-        return loss_pi
+        # c_mean, c_cov = compute_lagr_loss(cur_mean, cur_std, targ_mean, targ_std)
+        # writer.add_scalar('c_mean', c_mean.detach().numpy().mean(), run)
+        # writer.add_scalar('c_cov', c_cov.detach().numpy().mean(), run)
+
+        # loss_eta_mean = alpha*(eps_mean - c_mean.detach()).item()
+        # writer.add_scalar('eta_mean_loss', loss_eta_mean, run)
+        # nonlocal eta_mean
+        # eta_mean -=loss_eta_mean
+
+        # loss_eta_cov = alpha*(eps_cov - c_cov.detach()).item()
+        # writer.add_scalar('eta_cov_loss', loss_eta_cov, run)
+        # nonlocal eta_cov
+        # eta_cov -= loss_eta_cov
+
+        # if eta_mean < 0:
+        #     eta_mean = 0
+        # if eta_cov < 0:
+        #     eta_cov = 0
+
+        # writer.add_scalar('eta_mean', eta_mean, run)
+        # writer.add_scalar('eta_cov', eta_cov, run)
+
+        # loss_combined = -(loss_p + eta_mean * (eps_mean - c_mean) + eta_cov * (eps_cov - c_cov))
+        # writer.add_scalar('combined_loss', loss_combined.detach().numpy().mean(), run)
+
+        # update eta
+        max_q = torch.max(targ_q, dim=0).values
+        inner = targ_q.squeeze() - max_q
+        loss_eta = eps * eta + max_q.mean() + eta * torch.mean(torch.log(torch.mean(
+            torch.exp(inner / eta), dim=0
+        )))
+        writer.add_scalar('eta_loss', loss_eta.item(), run)
+        writer.add_scalar('eta', eta.item(), run)
+
+        return -loss_p + loss_eta
+
 
     def get_action(state, deterministic=False):
         action, logp_pi = ac.act(
@@ -200,9 +269,11 @@ def mpo_sac(env_fn,
             if j % (learning_steps // traj_update_count) == 0:
                 sample_traj(perform_traj=1)
 
+
             if j % update_targ_nets_after == 0:
-                for p, p_targ in zip(ac.q.parameters(), ac_targ.q.parameters()):
+                for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
                     p_targ.data.copy_(p.data)
+
 
             rows, cols = replay_buffer.sample_idxs(batch_size=batch_t)
             samples = replay_buffer.sample_trajectories(rows, cols)
@@ -216,16 +287,17 @@ def mpo_sac(env_fn,
 
             # update pi
             for _ in range(3):
+                rows, cols = replay_buffer.sample_idxs(batch_size=batch_s)
+                samples = replay_buffer.sample_batch(rows, cols)
+
                 opti_pi.zero_grad()
-                loss = loss_pi_sac(samples, run=i * learning_steps + j)
+                loss = loss_pi_mpo(samples, run=i * learning_steps + j)
                 loss.backward()
                 opti_pi.step()
-
-                for p, p_targ in zip(ac.pi.parameters(), ac_targ.pi.parameters()):
-                    p_targ.data.mul_(polyak)
-                    p_targ.data.add_((1 - polyak) * p.data)
 
         test_agent(i)
         writer.add_scalar('time_per_epoch', time.time() - start_time, i)
         start_time = time.time()
         writer.flush()
+
+

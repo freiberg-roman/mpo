@@ -208,14 +208,14 @@ def mpo_sac(env_fn,
             samples = replay_buffer.sample_trajectories(rows, cols)
 
             # update q
-            for _ in range(3):
+            for _ in range(10):
                 opti_q.zero_grad()
                 loss = loss_q_retrace(samples, run=i * learning_steps + j)
                 loss.backward()
                 opti_q.step()
 
             # update pi
-            for _ in range(3):
+            for _ in range(10):
                 opti_pi.zero_grad()
                 loss = loss_pi_sac(samples, run=i * learning_steps + j)
                 loss.backward()

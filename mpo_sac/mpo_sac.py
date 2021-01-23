@@ -35,10 +35,11 @@ def mpo_sac(env_fn,
         init_eta_mean=1.0,
         init_eta_cov=1.0,
         learning_steps=1000,
-        update_targ_nets_after=250,
+        update_targ_nets_after=200,
         num_test_episodes=50,
+        polyak=0.995,
         reward_scaling=lambda r: r):
-    writer = SummaryWriter(comment='MPO_RETRACE_ENT_LOSS_1000ls_250up_20trj_batch2')
+    writer = SummaryWriter(comment='MPO_RETRACE_ENT_LOSS_polyak_pi_multiple')
 
     # seeds for testing
     torch.manual_seed(seed)
@@ -203,7 +204,7 @@ def mpo_sac(env_fn,
         writer.add_scalar('test_ep_ret', np.array(ep_ret_list).mean(), run)
 
     def sample_traj(perform_traj=1, random_act=False):
-        for _ in tqdm(range(perform_traj), desc='sample trajectories'):
+        for _ in range(perform_traj):
 
             # sample steps
             s, ep_ret, ep_len = env.reset(), 0, 0
@@ -239,29 +240,38 @@ def mpo_sac(env_fn,
     # main loop
     for i in range(epochs):
         # sample traj_update_count many trajectories to update replay buffer
-        sample_traj(perform_traj=traj_update_count)
 
         for j in tqdm(range(learning_steps), desc='update nets'):
 
-            if i % update_targ_nets_after == 0:
-                # update target nets
-                for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
+            if j % (learning_steps // traj_update_count) == 0:
+                sample_traj(perform_traj=1)
+
+
+            if j % update_targ_nets_after == 0:
+                for p, p_targ in zip(ac.q.parameters(), ac_targ.q.parameters()):
                     p_targ.data.copy_(p.data)
+
 
             rows, cols = replay_buffer.sample_idxs(batch_size=batch_t)
             samples = replay_buffer.sample_trajectories(rows, cols)
 
             # update q
-            opti_q.zero_grad()
-            loss = loss_q_retrace(samples, run=i * learning_steps + j)
-            loss.backward()
-            opti_q.step()
+            for _ in range(3):
+                opti_q.zero_grad()
+                loss = loss_q_retrace(samples, run=i * learning_steps + j)
+                loss.backward()
+                opti_q.step()
 
             # update pi
-            opti_pi.zero_grad()
-            loss = loss_pi_sac(samples, run=i * learning_steps + j)
-            loss.backward()
-            opti_pi.step()
+            for _ in range(3):
+                opti_pi.zero_grad()
+                loss = loss_pi_sac(samples, run=i * learning_steps + j)
+                loss.backward()
+                opti_pi.step()
+
+                for p, p_targ in zip(ac.pi.parameters(), ac_targ.pi.parameters()):
+                    p_targ.data.mul_(polyak)
+                    p_targ.data.add_((1 - polyak) * p.data)
 
         test_agent(i)
         writer.add_scalar('time_per_epoch', time.time() - start_time, i)

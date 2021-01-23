@@ -20,25 +20,25 @@ def mpo_sac(env_fn,
         seed=0,
         gamma=0.99,
         epochs=2000,
-        traj_update_count=200,
+        traj_update_count=20,
         max_ep_len=200,
         eps=0.1,
         eps_mean=0.1,
         eps_cov=0.0001,
-        lr_pi=0.0005,
-        lr_q=0.0001,
+        lr_pi=2e-4,
+        lr_q=2e-4,
         alpha=0.2,
-        batch_t=10,  # sampled trajectories per learning step
+        batch_t=1,  # sampled trajectories per learning step
         batch_act=20,  # additional samples for integral estimation
         len_rollout=200,
         init_eta=0.5,
         init_eta_mean=1.0,
         init_eta_cov=1.0,
-        learning_steps=1200,
-        update_targ_nets_after=300,
+        learning_steps=1000,
+        update_targ_nets_after=250,
         num_test_episodes=50,
         reward_scaling=lambda r: r):
-    writer = SummaryWriter(comment='MPO_RETRACE_SAC')
+    writer = SummaryWriter(comment='MPO_RETRACE_ENT_LOSS_1000ls_250up_20trj_batch2')
 
     # seeds for testing
     torch.manual_seed(seed)
@@ -146,10 +146,10 @@ def mpo_sac(env_fn,
                          target_policy_probs=targ_act_logp,
                          behaviour_policy_probs=torch.transpose(samples['pi_logp'], 0, 1).squeeze(-1)
                          )
-        writer.add_scalar('loss_q', loss_q.item(), run)
-        writer.add_scalar('q_values', targ_q.mean().detach().numpy(), run)
-        writer.add_scalar('q_max', targ_q.max().detach().numpy().max(), run)
-        writer.add_scalar('q_min', targ_q.min().detach().numpy().min(), run)
+        writer.add_scalar('q_loss', loss_q.item(), run)
+        writer.add_scalar('q', targ_q.detach().numpy().mean(), run)
+        writer.add_scalar('q_min', targ_q.detach().numpy().min(), run)
+        writer.add_scalar('q_max', targ_q.detach().numpy().max(), run)
 
         return loss_q
 
@@ -163,7 +163,8 @@ def mpo_sac(env_fn,
 
         loss_pi = (alpha * cur_act_logp - cur_q).mean()
 
-        writer.add_scalar('loss_pi', loss_pi.item(), run)
+        writer.add_scalar('pi_loss', loss_pi.item(), run)
+        writer.add_scalar('pi_logp', cur_act_logp.detach().numpy().mean(), run)
         return loss_pi
 
     def compute_lagr_loss(cur_mean, cur_cov, targ_mean, targ_cov):
@@ -189,6 +190,7 @@ def mpo_sac(env_fn,
         return action, logp_pi
 
     def test_agent(run):
+        ep_ret_list = list()
         for j in tqdm(range(num_test_episodes), desc="testing model"):
             s, d, ep_ret, ep_len = test_env.reset(), False, 0, 0
             while not (d or (ep_len == max_ep_len)):
@@ -197,7 +199,8 @@ def mpo_sac(env_fn,
                         get_action(s, deterministic=True)[0])
                 ep_ret += r
                 ep_len += 1
-            writer.add_scalar('test_episode_ret', ep_ret, run * num_test_episodes + j)
+            ep_ret_list.append(ep_ret)
+        writer.add_scalar('test_ep_ret', np.array(ep_ret_list).mean(), run)
 
     def sample_traj(perform_traj=1, random_act=False):
         for _ in tqdm(range(perform_traj), desc='sample trajectories'):

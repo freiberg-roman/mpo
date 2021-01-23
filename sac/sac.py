@@ -45,7 +45,7 @@ class ReplayBuffer:
 def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=100, replay_size=int(1e6), gamma=0.99,
         polyak=0.995, lr=1e-3, alpha=0.2, batch_size=100, start_steps=10000,
-        update_after=1000, update_every=50, num_test_episodes=10, max_ep_len=1000, save_freq=1):
+        update_after=1000, update_every=50, num_test_episodes=50, max_ep_len=1000, save_freq=1):
     """
     Soft Actor-Critic (SAC)
     Args:
@@ -171,10 +171,9 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # Useful info for logging
         writer.add_scalar('q_loss', loss_q.item(), run)
-        writer.add_scalar('q1_mean', q1.detach().numpy().mean(), run)
-        writer.add_scalar('q2_mean', q2.detach().numpy().mean(), run)
-        writer.add_scalar('q1_min', q1.detach().numpy().min(), run)
-        writer.add_scalar('q1_max', q2.detach().numpy().max(), run)
+        writer.add_scalar('q', torch.min(q1.detach(), q2.detach()).numpy().mean(), run)
+        writer.add_scalar('q_min', torch.min(q1.detach(), q2.detach()).numpy().min(), run)
+        writer.add_scalar('q_max', torch.min(q1.detach(), q2.detach()).numpy().max(), run)
 
         return loss_q
 
@@ -190,8 +189,8 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         loss_pi = (alpha * logp_pi - q_pi).mean()
 
         # Useful info for logging
-        writer.add_scalar('loss_pi', loss_pi.item(), run)
-        writer.add_scalar('logp_pi', logp_pi.detach().numpy().mean(), run)
+        writer.add_scalar('pi_loss', loss_pi.item(), run)
+        writer.add_scalar('pi_logp', logp_pi.detach().numpy().mean(), run)
 
         return loss_pi
 
@@ -234,6 +233,7 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                       deterministic)
 
     def test_agent(run):
+        ep_ret_list = list()
         for j in range(num_test_episodes):
             o, d, ep_ret, ep_len = test_env.reset(), False, 0, 0
             while not (d or (ep_len == max_ep_len)):
@@ -241,7 +241,8 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 o, r, d, _ = test_env.step(get_action(o, True))
                 ep_ret += r
                 ep_len += 1
-            writer.add_scalar('TestEpRet', ep_ret, num_test_episodes*run + j)
+            ep_ret_list.append(ep_ret)
+        writer.add_scalar('test_ep_ret', np.array(ep_ret_list).mean(), run)
 
     # Prepare for interaction with environment
     total_steps = steps_per_epoch * epochs

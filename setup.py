@@ -5,5 +5,5 @@ setup(name='mpo',
       author='Roman Freiberg',
       author_email='mr-orange-fiber@googlemail.com',
       license='MIT',
-      packages=['eval', 'mpo_algorithm', 'utils'],
+      packages=['eval', 'mpo_retrace', 'utils'],
       zip_safe=False)

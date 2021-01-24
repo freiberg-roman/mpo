@@ -11,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from mpo_retrace.tray_dyn_buf import DynamicTrajectoryBuffer
 from tqdm import tqdm
 from mpo_retrace.retrace import Retrace
+from scipy.optimize import minimize
 
 local_device = "cpu"
 
@@ -31,9 +32,10 @@ def mpo_retrace(env_fn,
                 alpha=10,
                 batch_t=1,  # sampled trajectories per learning step
                 batch_s=200,
+                batch_eta=4096,
                 batch_act=20,  # additional samples for integral estimation
                 len_rollout=200,
-                init_eta=5.,
+                init_eta=1.,
                 init_eta_mean=10.0,
                 init_eta_cov=10.0,
                 learning_steps=1000,
@@ -68,7 +70,7 @@ def mpo_retrace(env_fn,
     ac_targ = deepcopy(ac)
 
     # setting up lagrange values
-    eta = torch.tensor([init_eta], requires_grad=True)
+    eta = init_eta
     eta_cov = init_eta_cov
     eta_mean = init_eta_mean
 
@@ -93,7 +95,7 @@ def mpo_retrace(env_fn,
     # setting up Adam Optimizer for gradient descent with momentum
     opti_q = Adam(ac.q.parameters(), lr=lr_q)
     # learn eta and policy parameters together
-    opti_pi = Adam(itertools.chain(ac.pi.parameters(), [eta]), lr=lr_pi)
+    opti_pi = Adam(ac.pi.parameters(), lr=lr_pi)
 
     def loss_q_retrace(samples, run):
         batch_q = ac.q.forward(samples['state'], samples['action'])
@@ -141,7 +143,6 @@ def mpo_retrace(env_fn,
 
         dif = cur_mean - targ_mean
         c_cov = 0.5 * (((dif ** 2) * (1 / cur_cov)).sum(dim=1)).mean()
-
         return c_mean, c_cov
 
     def loss_pi_mpo(samples, run):
@@ -155,7 +156,7 @@ def mpo_retrace(env_fn,
         exp_state = samples['state'].expand((batch_act, batch_s, s_dim))
         targ_q = ac_targ.q.forward(exp_state, targ_act)
 
-        q_weights = torch.softmax(targ_q / eta.detach(), dim=0)
+        q_weights = torch.softmax(targ_q / eta, dim=0)
         cur_mean, cur_std = ac.pi.forward(samples['state'])
         pi_dist_1 = Independent(Normal(cur_mean, targ_std), reinterpreted_batch_ndims=a_dim)
         pi_dist_2 = Independent(Normal(targ_mean, cur_std), reinterpreted_batch_ndims=a_dim)
@@ -193,16 +194,29 @@ def mpo_retrace(env_fn,
         loss_combined = -(loss_p + eta_mean * (eps_mean - c_mean) + eta_cov * (eps_cov - c_cov))
         writer.add_scalar('combined_loss', loss_combined.detach().numpy().mean(), run)
 
-        # update eta
-        max_q = torch.max(targ_q, dim=0).values
-        inner = targ_q.squeeze() - max_q
-        loss_eta = eps * eta + max_q.mean() + eta * torch.mean(torch.log(torch.mean(
-            torch.exp(inner / eta), dim=0
-        )))
-        writer.add_scalar('eta_loss', loss_eta.item(), run)
-        writer.add_scalar('eta', eta.item(), run)
+        writer.add_scalar('eta', eta, run)
 
-        return loss_combined + loss_eta
+        return loss_combined
+
+    def update_eta(samples, run):
+        targ_mean, targ_std = ac_targ.pi.forward(samples['state'])
+        exp_targ_mean = targ_mean.expand((batch_act, batch_eta, a_dim))
+        exp_targ_std = targ_std.expand((batch_act, batch_eta, a_dim))
+        targ_act, targ_logp = ac_targ.pi.get_act(exp_targ_mean, exp_targ_std)  # get additional action samples
+
+        exp_state = samples['state'].expand((batch_act, batch_eta, s_dim))
+        targ_q = ac_targ.q.forward(exp_state, targ_act).cpu().numpy()
+
+        def dual(eta):
+            max_q = np.max(targ_q, axis=0)
+            return eta * eps + np.mean(max_q) + eta * np.mean(
+                np.log(np.mean(np.exp((targ_q - max_q)/ eta), axis=0))
+            )
+        bounds = [(1e-6, None)]
+        nonlocal eta
+        res = minimize(dual, np.array(eta), method='SLSQP', bounds=bounds)
+        eta = res.x[0]
+        writer.add_scalar('eta', eta, run)
 
     def get_action(state, deterministic=False):
         action, logp_pi = ac.act(
@@ -271,6 +285,11 @@ def mpo_retrace(env_fn,
                 else:
                     sample_traj(perform_traj=1)
 
+                if i > 0:
+                    rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_eta)
+                    samples = replay_buffer.sample_batch(rows, cols)
+                    update_eta(samples, run=i * learning_steps + j)
+
             if j % update_targ_nets_after == 0:
                 for p, p_targ in zip(ac.parameters(), ac_targ.parameters()):
                     p_targ.data.copy_(p.data)
@@ -286,7 +305,7 @@ def mpo_retrace(env_fn,
 
             # update pi
             rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
-            for _ in range(3):
+            for _ in range(10):
                 samples = replay_buffer.sample_batch(rows, cols)
 
                 opti_pi.zero_grad()

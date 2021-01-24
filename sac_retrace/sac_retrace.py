@@ -4,11 +4,11 @@ import itertools
 import torch
 from torch.optim import Adam
 import time
-from mpo_sac import tanh_core
+from sac_retrace import tanh_core
 from torch.utils.tensorboard import SummaryWriter
-from mpo_sac.tray_dyn_buf import DynamicTrajectoryBuffer
+from sac_retrace.tray_dyn_buf import DynamicTrajectoryBuffer
 from tqdm import tqdm
-from mpo_sac.retrace import Retrace
+from sac_retrace.retrace import Retrace
 from torch.distributions.normal import Normal
 
 local_device = "cpu"

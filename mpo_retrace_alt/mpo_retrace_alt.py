@@ -49,14 +49,15 @@ class MPO(object):
                  sample_episode_num=1,
                  max_ep_len=200,
                  len_rollout=200,
-                 sample_action_num=64,
-                 batch_size=64,
+                 sample_action_num=20,
+                 batch_size=768,
                  batch_q=1,
-                 episode_rerun_num=3,
+                 episode_rerun_num=20,
                  lagrange_iteration_num=5,
-                 update_q=20,
+                 update_q=15,
+                 polyak=0.995,
                  ):
-        self.writer = SummaryWriter(comment='MPO_RETRACE_ALT')
+        self.writer = SummaryWriter(comment='MPO_RETRACE_ALT_FREQ_UPDATES_LESS_ITERATIONS')
         self.device = device
         self.env = env
         self.continuous_action_space = True
@@ -76,6 +77,7 @@ class MPO(object):
         self.batch_q = batch_q
         self.update_q = update_q
         self.max_ep_len = max_ep_len
+        self.polyak = polyak
 
         self.actor = ActorContinuous(env).to(self.device)
         self.critic = CriticContinuous(env).to(self.device)
@@ -116,98 +118,102 @@ class MPO(object):
 
         for it in range(self.iteration, iteration_num):
             # Find better policy by gradient descent
-            for r in range(self.episode_rerun_num):
-                for j in tqdm(range(100)):
+            for r in tqdm(range(self.episode_rerun_num * 25), desc='updating nets'):
+                if r % 25 == 0:
+                    if it == 0 and r == 0:
+                        # update replay buffer
+                        self.sample_traj(perform_traj=10)
+                    else:
+                        self.sample_traj(perform_traj=1)
 
-                    if j % 20 == 0:
-                        if it == 0 and j == 0:
-                            # update replay buffer
-                            self.sample_traj(perform_traj=10)
-                        else:
-                            self.sample_traj(perform_traj=1)
+                # update q values
+                if r % 100 == 0:
+                    for target_param, param in zip(self.target_actor.parameters(), self.actor.parameters()):
+                        target_param.data.copy_(param.data)
 
-                    B = self.batch_size
-                    M = self.sample_action_num
-                    ds = self.ds
-                    da = self.da
+                B = self.batch_size
+                M = self.sample_action_num
+                ds = self.ds
+                da = self.da
 
-                    # update q with retrace
-                    for _ in range(self.update_q):
-                        rows, cols = self.replay_buffer.sample_idxs(batch_size=self.batch_q)
-                        samples = self.replay_buffer.sample_trajectories(rows, cols)
-                        self.update_q_retrace(samples, run)
+                # update q with retrace
+                for _ in range(self.update_q):
+                    rows, cols = self.replay_buffer.sample_idxs(batch_size=self.batch_q)
+                    samples = self.replay_buffer.sample_trajectories(rows, cols)
+                    self.update_q_retrace(samples, run)
 
-                    rows, cols = self.replay_buffer.sample_idxs_batch(batch_size=self.batch_size)
-                    samples = self.replay_buffer.sample_batch(rows, cols)
-                    state_batch = samples['state']
+                rows, cols = self.replay_buffer.sample_idxs_batch(batch_size=self.batch_size)
+                samples = self.replay_buffer.sample_batch(rows, cols)
+                state_batch = samples['state']
 
-                    # sample M additional action for each state
-                    with torch.no_grad():
-                        b_μ, b_A = self.target_actor.forward(state_batch)  # (B,)
-                        b = MultivariateNormal(b_μ, scale_tril=b_A)  # (B,)
-                        sampled_actions = b.sample((M,))  # (M, B, da)
-                        expanded_states = state_batch[None, ...].expand(M, -1, -1)  # (M, B, ds)
-                        target_q = self.target_critic.forward(
-                            expanded_states.reshape(-1, ds),  # (M * B, ds)
-                            sampled_actions.reshape(-1, da)  # (M * B, da)
-                        ).reshape(M, B)  # (M, B)
-                        target_q_np = target_q.cpu().numpy()  # (M, B)
+                # sample M additional action for each state
+                with torch.no_grad():
+                    b_μ, b_A = self.target_actor.forward(state_batch)  # (B,)
+                    b = MultivariateNormal(b_μ, scale_tril=b_A)  # (B,)
+                    sampled_actions = b.sample((M,))  # (M, B, da)
+                    expanded_states = state_batch[None, ...].expand(M, -1, -1)  # (M, B, ds)
+                    target_q = self.target_critic.forward(
+                        expanded_states.reshape(-1, ds),  # (M * B, ds)
+                        sampled_actions.reshape(-1, da)  # (M * B, da)
+                    ).reshape(M, B)  # (M, B)
+                    target_q_np = target_q.cpu().numpy()  # (M, B)
 
-                    # E-step
-                    def dual(eta):
-                        max_q = np.max(target_q_np, 0)
-                        return eta * self.eps_dual + np.mean(max_q) \
-                               + eta * np.mean(np.log(np.mean(np.exp((target_q_np - max_q) / eta), axis=0)))
+                # E-step
+                def dual(eta):
+                    max_q = np.max(target_q_np, 0)
+                    return eta * self.eps_dual + np.mean(max_q) \
+                           + eta * np.mean(np.log(np.mean(np.exp((target_q_np - max_q) / eta), axis=0)))
 
-                    bounds = [(1e-6, None)]
-                    res = minimize(dual, np.array([self.eta]), method='SLSQP', bounds=bounds)
-                    self.eta = res.x[0]
-                    writer.add_scalar('eta', self.eta, run)
+                bounds = [(1e-6, None)]
+                res = minimize(dual, np.array([self.eta]), method='SLSQP', bounds=bounds)
+                self.eta = res.x[0]
+                writer.add_scalar('eta', self.eta, run)
 
-                    qij = torch.softmax(target_q / self.eta, dim=0)  # (M, B) or (da, B)
+                qij = torch.softmax(target_q / self.eta, dim=0)  # (M, B) or (da, B)
 
-                    # M-step
-                    # update policy based on lagrangian
-                    for _ in range(self.lagrange_iteration_num):
-                        μ, A = self.actor.forward(state_batch)
-                        π1 = MultivariateNormal(loc=μ, scale_tril=b_A)  # (B,)
-                        π2 = MultivariateNormal(loc=b_μ, scale_tril=A)  # (B,)
-                        loss_p = torch.mean(
-                            qij * (
-                                    π1.expand((M, B)).log_prob(sampled_actions)  # (M, B)
-                                    + π2.expand((M, B)).log_prob(sampled_actions)  # (M, B)
-                            )
+                # M-step
+                # update policy based on lagrangian
+                for _ in range(self.lagrange_iteration_num):
+                    μ, A = self.actor.forward(state_batch)
+                    π1 = MultivariateNormal(loc=μ, scale_tril=b_A)  # (B,)
+                    π2 = MultivariateNormal(loc=b_μ, scale_tril=A)  # (B,)
+                    loss_p = torch.mean(
+                        qij * (
+                                π1.expand((M, B)).log_prob(sampled_actions)  # (M, B)
+                                + π2.expand((M, B)).log_prob(sampled_actions)  # (M, B)
                         )
-                        writer.add_scalar('loss_pi', loss_p.item(), run)
+                    )
+                    writer.add_scalar('loss_pi', loss_p.item(), run)
 
-                        kl_mean, kl_cov = gaussian_kl(
-                            μi=b_μ, μ=μ,
-                            Ai=b_A, A=A)
+                    kl_mean, kl_cov = gaussian_kl(
+                        μi=b_μ, μ=μ,
+                        Ai=b_A, A=A)
 
-                        # Update lagrange multipliers by gradient descent
-                        self.eta_mean -= self.alpha * (self.eps_mean - kl_mean).detach().item()
-                        if self.eta_mean < 0.0:
-                            self.eta_mean = 0.0
-                        writer.add_scalar('eta_mean', self.eta_mean, run)
+                    # Update lagrange multipliers by gradient descent
+                    self.eta_mean -= self.alpha * (self.eps_mean - kl_mean).detach().item()
+                    if self.eta_mean < 0.0:
+                        self.eta_mean = 0.0
+                    writer.add_scalar('eta_mean', self.eta_mean, run)
 
-                        self.eta_cov -= self.alpha * (self.eps_cov - kl_cov).detach().item()
-                        if self.eta_cov < 0.0:
-                            self.eta_cov = 0.0
-                        writer.add_scalar('eta_cov', self.eta_cov, run)
+                    self.eta_cov -= self.alpha * (self.eps_cov - kl_cov).detach().item()
+                    if self.eta_cov < 0.0:
+                        self.eta_cov = 0.0
+                    writer.add_scalar('eta_cov', self.eta_cov, run)
 
-                        self.actor_optimizer.zero_grad()
-                        loss_l = -(
-                                loss_p
-                                + self.eta_mean * (self.eps_mean - kl_mean)
-                                + self.eta_cov * (self.eps_cov - kl_cov)
-                        )
-                        writer.add_scalar('combined_loss', loss_l.item(), run)
-                        loss_l.backward()
-                        clip_grad_norm_(self.actor.parameters(), 0.1)
-                        self.actor_optimizer.step()
+                    self.actor_optimizer.zero_grad()
+                    loss_l = -(
+                            loss_p
+                            + self.eta_mean * (self.eps_mean - kl_mean)
+                            + self.eta_cov * (self.eps_cov - kl_cov)
+                    )
+                    writer.add_scalar('combined_loss', loss_l.item(), run)
+                    loss_l.backward()
+                    clip_grad_norm_(self.actor.parameters(), 0.1)
+                    self.actor_optimizer.step()
 
-                        run += 1
-            self.__update_param()
+                    if r % 50 == 0 and r >= 1:
+                        self.__update_param()
+                    run += 1
 
             self.eta_mean = 0.0
             self.eta_cov = 0.0
@@ -215,6 +221,11 @@ class MPO(object):
             self.test_agent(it)
             writer.flush()
             it += 1
+
+    def updata_param_polyak(self):
+        # Update critic parameters
+        for target_param, param in zip(self.target_critic.parameters(), self.critic.parameters()):
+            target_param.data.copy_(param.data)
 
     def __update_param(self):
         """
@@ -285,10 +296,12 @@ class MPO(object):
                     self.replay_buffer.next_traj()
                     break
 
-    def get_action(self, state):
+    def get_action(self, state, deterministic=False):
         mean, chol = self.target_actor.forward(torch.as_tensor(state,
                                                                dtype=torch.float32,
                                                                device=local_device).reshape(1, self.ds))
+        if deterministic:
+            return mean, None
         dist = MultivariateNormal(mean, scale_tril=chol)
         act = dist.sample().squeeze()
         return act, dist.log_prob(act)
@@ -300,7 +313,7 @@ class MPO(object):
             while not (d or (ep_len == self.max_ep_len)):
                 with torch.no_grad():
                     s, r, d, _ = self.env.step(
-                        self.get_action(s)[0].reshape(1, 1).numpy())
+                        self.get_action(s, deterministic=True)[0].reshape(1, 1).numpy())
                 ep_ret += r
                 ep_len += 1
             ep_ret_list.append(ep_ret)

@@ -1,5 +1,5 @@
 from sac_retrace import tanh_core
-from sac_retrace.sac_retrace import mpo_sac
+from sac_retrace.sac_retrace import sac_retrace
 import argparse
 import torch
 import gym
@@ -25,16 +25,12 @@ if __name__ == "__main__":
                                         True)
 
     torch.set_num_threads(torch.get_num_threads())
-    mpo_sac(lambda: gym.make(args.env),
-        actor_critic=tanh_core.MLPActorCritic,
-        ac_kwargs=dict(hidden_sizes_q=[args.hid_q] * args.l,
-                       hidden_sizes_pi=[args.hid_pi] * args.l),
-        gamma=args.gamma,
-        seed=args.seed,
-        epochs=args.epochs,
-        reward_scaling=lambda r: r,
-        )
-
-    # create_graphs(logger_kwargs['output_dir'] + '/progress.txt', save_to=logger_kwargs['output_dir'],
-    #               plot=[('Epoch', 'AverageTestEpRet'),
-    #                     ('Epoch', 'AverageEta')])
+    sac_retrace(lambda: gym.make(args.env),
+                actor_critic=tanh_core.MLPActorCritic,
+                ac_kwargs=dict(hidden_sizes_q=[args.hid_q] * args.l,
+                               hidden_sizes_pi=[args.hid_pi] * args.l),
+                gamma=args.gamma,
+                seed=args.seed,
+                epochs=args.epochs,
+                reward_scaling=lambda r: r,
+                )

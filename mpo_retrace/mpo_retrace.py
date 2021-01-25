@@ -1,6 +1,5 @@
 from copy import deepcopy
 import numpy as np
-import itertools
 import torch
 from torch.distributions import Independent
 from torch.distributions.normal import Normal
@@ -8,9 +7,9 @@ from torch.optim import Adam
 import time
 from mpo_retrace import core
 from torch.utils.tensorboard import SummaryWriter
-from mpo_retrace.tray_dyn_buf import DynamicTrajectoryBuffer
+from common.tray_dyn_buf import DynamicTrajectoryBuffer
 from tqdm import tqdm
-from mpo_retrace.retrace import Retrace
+from common.retrace import Retrace
 from scipy.optimize import minimize
 
 local_device = "cpu"
@@ -45,17 +44,10 @@ def mpo_retrace(env_fn,
                 reward_scaling=lambda r: r):
     writer = SummaryWriter(comment='MPO_RETRACE_ALPHA_10')
 
-    # seeds for testing
-    torch.manual_seed(seed)
-
     # environment parameters
     env, test_env = env_fn(), env_fn()
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.shape[0]
-
-    # this will slow down computation by 10-20 percent.
-    # Only use for debugging
-    # torch.autograd.set_detect_anomaly(True)
 
     # create actor-critic module and target networks
     if ac_kwargs is not dict():
@@ -94,7 +86,6 @@ def mpo_retrace(env_fn,
 
     # setting up Adam Optimizer for gradient descent with momentum
     opti_q = Adam(ac.q.parameters(), lr=lr_q)
-    # learn eta and policy parameters together
     opti_pi = Adam(ac.pi.parameters(), lr=lr_pi)
 
     def loss_q_retrace(samples, run):
@@ -275,8 +266,6 @@ def mpo_retrace(env_fn,
 
     # main loop
     for i in range(epochs):
-        # sample traj_update_count many trajectories to update replay buffer
-
         for j in tqdm(range(learning_steps), desc='update nets'):
 
             if j % (learning_steps // traj_update_count) == 0:

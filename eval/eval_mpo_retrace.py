@@ -26,11 +26,11 @@ if __name__ == "__main__":
 
     torch.set_num_threads(torch.get_num_threads())
     mpo_retrace(lambda: gym.make(args.env),
-        actor_critic=core.MLPActorCritic,
-        ac_kwargs=dict(hidden_sizes_q=[args.hid_q] * args.l,
-                       hidden_sizes_pi=[args.hid_pi] * args.l),
-        gamma=args.gamma,
-        seed=args.seed,
-        epochs=args.epochs,
-        reward_scaling=lambda r: r,
-        )
+                actor_critic=core.MLPActorCritic,
+                ac_kwargs=dict(hidden_sizes_q=[args.hid_q] * args.l,
+                               hidden_sizes_pi=[args.hid_pi] * args.l),
+                gamma=args.gamma,
+                seed=args.seed,
+                epochs=args.epochs,
+                reward_scaling=lambda r: r,
+                )

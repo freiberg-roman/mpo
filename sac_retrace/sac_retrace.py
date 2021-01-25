@@ -1,57 +1,41 @@
 from copy import deepcopy
 import numpy as np
-import itertools
 import torch
 from torch.optim import Adam
 import time
 from sac_retrace import tanh_core
 from torch.utils.tensorboard import SummaryWriter
-from sac_retrace.tray_dyn_buf import DynamicTrajectoryBuffer
+from common.tray_dyn_buf import DynamicTrajectoryBuffer
 from tqdm import tqdm
-from sac_retrace.retrace import Retrace
-from torch.distributions.normal import Normal
+from common.retrace import Retrace
 
 local_device = "cpu"
 
 
-def mpo_sac(env_fn,
-            actor_critic=tanh_core.MLPActorCritic,
-            ac_kwargs=dict(),
-            seed=0,
-            gamma=0.99,
-            epochs=2000,
-            traj_update_count=20,
-            max_ep_len=200,
-            eps=0.1,
-            eps_mean=0.1,
-            eps_cov=0.0001,
-            lr_pi=5e-4,
-            lr_q=2e-4,
-            alpha=0.2,
-            batch_t=2,  # sampled trajectories per learning step
-            batch_act=20,  # additional samples for integral estimation
-            len_rollout=200,
-            init_eta=0.5,
-            init_eta_mean=1.0,
-            init_eta_cov=1.0,
-            learning_steps=1000,
-            update_targ_nets_after=200,
-            num_test_episodes=50,
-            polyak=0.995,
-            reward_scaling=lambda r: r):
-    writer = SummaryWriter(comment='MPO_RETRACE_ENT_LOSS_polyak_pi_multiple')
-
-    # seeds for testing
-    torch.manual_seed(seed)
+def sac_retrace(env_fn,
+                actor_critic=tanh_core.MLPActorCritic,
+                ac_kwargs=dict(),
+                seed=0,
+                gamma=0.99,
+                epochs=2000,
+                traj_update_count=20,
+                max_ep_len=200,
+                lr_pi=5e-4,
+                lr_q=2e-4,
+                alpha=0.2,
+                batch_t=2,  # sampled trajectories per learning step
+                len_rollout=200,
+                learning_steps=1000,
+                update_targ_nets_after=200,
+                num_test_episodes=50,
+                polyak=0.995,
+                reward_scaling=lambda r: r):
+    writer = SummaryWriter(comment='SAC_RETRACE_POLYAK_POLICY_UPDATE')
 
     # environment parameters
     env, test_env = env_fn(), env_fn()
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.shape[0]
-
-    # this will slow down computation by 10-20 percent.
-    # Only use for debugging
-    # torch.autograd.set_detect_anomaly(True)
 
     # create actor-critic module and target networks
     if ac_kwargs is not dict():
@@ -64,11 +48,6 @@ def mpo_sac(env_fn,
                       hidden_sizes_q=hid_q,
                       hidden_sizes_pi=hid_pi)
     ac_targ = deepcopy(ac)
-
-    # setting up lagrange values
-    eta = torch.tensor([init_eta], requires_grad=True)
-    eta_cov = init_eta_cov
-    eta_mean = init_eta_mean
 
     # no update for target network with respect to optimizers (copied after k
     # optimizer steps)
@@ -90,7 +69,6 @@ def mpo_sac(env_fn,
 
     # setting up Adam Optimizer for gradient descent with momentum
     opti_q = Adam(ac.q.parameters(), lr=lr_q)
-    # learn eta and policy parameters together
     opti_pi = Adam(ac.pi.parameters(), lr=lr_pi)
 
     def loss_q_retrace(samples, run):
@@ -115,7 +93,8 @@ def mpo_sac(env_fn,
                          target_Q=targ_q,
                          rewards=torch.transpose(samples['reward'], 0, 1).squeeze(-1),
                          target_policy_probs=targ_act_logp,
-                         behaviour_policy_probs=torch.transpose(samples['pi_logp'], 0, 1).squeeze(-1)
+                         behaviour_policy_probs=torch.transpose(samples['pi_logp'], 0, 1).squeeze(-1),
+                         gamma=gamma
                          )
         writer.add_scalar('q_loss', loss_q.item(), run)
         writer.add_scalar('q', targ_q.detach().numpy().mean(), run)
@@ -125,7 +104,6 @@ def mpo_sac(env_fn,
         return loss_q
 
     def loss_pi_sac(samples, run):
-
         cur_mean, cur_std = ac.pi.forward(samples['state'])
         cur_act, cur_act_logp = ac.pi.get_act(cur_mean, cur_std)
         cur_q = ac.q.forward(samples['state'], cur_act)
@@ -190,11 +168,9 @@ def mpo_sac(env_fn,
                     break
 
     start_time = time.time()
-
     # main loop
     for i in range(epochs):
         # sample traj_update_count many trajectories to update replay buffer
-
         for j in tqdm(range(learning_steps), desc='update nets'):
 
             if j % (learning_steps // traj_update_count) == 0:

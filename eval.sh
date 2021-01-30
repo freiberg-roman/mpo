@@ -1,3 +1,6 @@
 pip install -e .
 cd eval
-python eval_mpo_retrace.py
+python mpo_learn.py \
+  --env Pendulum-v0 \
+  --name mpo_q_light_pi_freq \
+  --episode_length 200

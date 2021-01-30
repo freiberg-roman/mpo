@@ -18,7 +18,6 @@ local_device = "cpu"
 def mpo_retrace(env_fn,
                 actor_critic=core.MLPActorCritic,
                 ac_kwargs=dict(),
-                seed=0,
                 gamma=0.99,
                 epochs=2000,
                 traj_update_count=20,

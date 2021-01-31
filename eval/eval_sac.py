@@ -4,7 +4,6 @@ import argparse
 import torch
 import gym
 
-
 if __name__ == "__main__":
     # run sac with needed parameters for 5 epochs
 
@@ -17,7 +16,6 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--exp_name', type=str, default='sac')
     args = parser.parse_args()
-
 
     sac(lambda: gym.make(args.env), ac_kwargs=dict(hidden_sizes=[args.hid] * args.l),
         gamma=args.gamma, seed=args.seed, epochs=args.epochs)

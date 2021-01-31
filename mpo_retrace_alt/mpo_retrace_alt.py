@@ -2,13 +2,13 @@ import numpy as np
 from scipy.optimize import minimize
 from tqdm import tqdm
 import torch
-import torch.nn as nn
 from torch.nn.utils import clip_grad_norm_
 from torch.distributions import MultivariateNormal
 from mpo_retrace_alt.actor import ActorContinuous
 from mpo_retrace_alt.critic import CriticContinuous
 from common.tray_dyn_buf import DynamicTrajectoryBuffer
 from common.retrace import Retrace
+from utils.logx import EpochLogger
 
 local_device = "cpu"
 
@@ -52,11 +52,12 @@ def mpo_retrace(writer,
                 batch_t=1,
                 episode_rerun_num=20,
                 epochs=20,
-                q_iteration_num=5,
-                lagrange_iteration_num=3,
+                q_iteration_num=10,
+                lagrange_iteration_num=5,
                 update_q_after=100,
-                update_pi_after=50,
+                update_pi_after=100,
                 ):
+    logger = EpochLogger()
     ds = env.observation_space.shape[0]
     da = env.action_space.shape[0]
 
@@ -89,6 +90,7 @@ def mpo_retrace(writer,
 
     iteration = 0
     run = 0
+    # logger.setup_pytorch_saver()
 
     def update_q_retrace(samples, run):
         critic_optimizer.zero_grad()
@@ -180,8 +182,6 @@ def mpo_retrace(writer,
             if r % 50 == 0:
                 if it == 0 and r == 0:
                     # update replay buffer
-                    sample_traj(perform_traj=10)
-                else:
                     sample_traj(perform_traj=sample_episodes)
 
             # update q values

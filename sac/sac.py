@@ -45,7 +45,7 @@ class ReplayBuffer:
 def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=100, replay_size=int(1e6), gamma=0.99,
         polyak=0.995, lr=1e-3, alpha=0.2, batch_size=100, start_steps=10000,
-        update_after=1000, update_every=50, num_test_episodes=200, max_ep_len=1000, save_freq=1):
+        update_after=1000, update_every=50, num_test_episodes=50, max_ep_len=1000, save_freq=1):
     """
     Soft Actor-Critic (SAC)
     Args:
@@ -243,7 +243,6 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 ep_len += 1
             ep_ret_list.append(ep_ret)
         writer.add_scalar('test_ep_ret', np.array(ep_ret_list).mean(), run)
-        print('test_ep_ret:', np.array(ep_ret_list).mean())
 
     # Prepare for interaction with environment
     total_steps = steps_per_epoch * epochs
@@ -298,6 +297,5 @@ def sac(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             # Test the performance of the deterministic version of the agent.
             test_agent(epoch)
             writer.flush()
-            print('steps:', t)
             print('epoch done')
 

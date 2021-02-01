@@ -4,7 +4,7 @@ from tqdm import tqdm
 import torch
 import torch.nn as nn
 from torch.nn.utils import clip_grad_norm_
-from torch.distributions import MultivariateNormal
+from torch.distributions import Independent, Normal
 from torch.utils.tensorboard import SummaryWriter
 from mpo_retrace_alt.actor import ActorContinuous
 from mpo_retrace_alt.critic import CriticContinuous
@@ -22,34 +22,17 @@ def btr(m):
     return m.diagonal(dim1=-2, dim2=-1).sum(-1)
 
 
-def gaussian_kl(μi, μ, Ai, A):
-    n = A.size(-1)
-    μi = μi.unsqueeze(-1)  # (B, n, 1)
-    μ = μ.unsqueeze(-1)  # (B, n, 1)
-    Σi = Ai @ bt(Ai)  # (B, n, n)
-    Σ = A @ bt(A)  # (B, n, n)
-    Σi_inv = Σi.inverse()  # (B, n, n)
-    Σ_inv = Σ.inverse()  # (B, n, n)
-    inner_μ = ((μ - μi).transpose(-2, -1) @ Σi_inv @ (μ - μi)).squeeze()  # (B,)
-    inner_Σ = torch.log(Σ.det() / Σi.det()) - n + btr(Σ_inv @ Σi)  # (B,)
-    C_μ = 0.5 * torch.mean(inner_μ)
-    C_Σ = 0.5 * torch.mean(inner_Σ)
+def gaussian_kl(targ_mean, mean, targ_std, std):
+    n = std.size(-1)
+    cov = std ** 2
+    targ_cov = targ_std ** 2
+    cov_inv = 1 / cov
+    targ_cov_inv = 1 / targ_cov
+    inner_mean = (((mean - targ_mean) ** 2) * targ_cov_inv).sum(-1)
+    inner_cov = torch.log(cov.prod(-1) / targ_cov.prod(-1)) - n + (cov_inv * targ_cov).sum(-1)
+    C_μ = 0.5 * torch.mean(inner_mean)
+    C_Σ = 0.5 * torch.mean(inner_cov)
     return C_μ, C_Σ
-
-
-def get_logp(mean, cov, action, expand=None):
-    if expand is not None:
-        dist = MultivariateNormal(mean, scale_tril=cov).expand(expand)
-    else:
-        dist = MultivariateNormal(mean, scale_tril=cov)
-    return dist.log_prob(action)
-
-
-def get_act(mean, cov, amount=None):
-    dist = MultivariateNormal(mean, scale_tril=cov)
-    if amount is not None:
-        return dist.sample(amount)
-    return dist.sample()
 
 
 class MPO(object):
@@ -164,7 +147,7 @@ class MPO(object):
                 # sample M additional action for each state
                 with torch.no_grad():
                     b_μ, b_A = self.target_actor.forward(state_batch)  # (B,)
-                    sampled_actions = get_act(b_μ, b_A, amount=(M,))
+                    sampled_actions = self.get_act(b_μ, b_A, amount=(M,))
                     expanded_states = state_batch[None, ...].expand(M, -1, -1)  # (M, B, ds)
                     target_q = self.target_critic.forward(
                         expanded_states.reshape(-1, ds),  # (M * B, ds)
@@ -188,18 +171,18 @@ class MPO(object):
                 # M-step
                 # update policy based on lagrangian
                 for _ in range(self.lagrange_iteration_num):
-                    mean, cov = self.actor.forward(state_batch)
+                    mean, std = self.actor.forward(state_batch)
                     loss_p = torch.mean(
                         qij * (
-                                get_logp(mean, b_A, sampled_actions, expand=(M, B)) +
-                                get_logp(b_μ, cov, sampled_actions, expand=(M, B))
+                                self.get_logp(mean, b_A, sampled_actions, expand=(M, B)) +
+                                self.get_logp(b_μ, std, sampled_actions, expand=(M, B))
                         )
                     )
                     writer.add_scalar('loss_pi', loss_p.item(), run)
 
                     kl_mean, kl_cov = gaussian_kl(
-                        μi=b_μ, μ=mean,
-                        Ai=b_A, A=cov)
+                        targ_mean=b_μ, mean=mean,
+                        targ_std=b_A, std=std)
 
                     # Update lagrange multipliers by gradient descent
                     self.eta_mean -= self.alpha * (self.eps_mean - kl_mean).detach().item()
@@ -248,13 +231,13 @@ class MPO(object):
         for p in self.actor.parameters():
             p.requires_grad = False
 
-        targ_mean, targ_chol = self.actor.forward(samples['state'], traj=True, T=self.batch_q)
-        targ_act = get_act(targ_mean, targ_chol)
+        targ_mean, targ_chol = self.actor.forward(samples['state'])
+        targ_act = self.get_act(targ_mean, targ_chol)
 
         exp_targ_q = self.target_critic.forward(samples['state'], targ_act, dim=2)
         exp_targ_q = torch.transpose(exp_targ_q, 0, 1)
 
-        targ_act_logp = get_logp(targ_mean, targ_chol, samples['action']).unsqueeze(-1)
+        targ_act_logp = self.get_logp(targ_mean, targ_chol, samples['action']).unsqueeze(-1)
         targ_act_logp = torch.transpose(targ_act_logp, 0, 1)
 
         # technically wrong
@@ -306,8 +289,8 @@ class MPO(object):
                                                                device=local_device).reshape(1, self.ds))
         if deterministic:
             return mean, None
-        act = get_act(mean, chol).squeeze()
-        return act, get_logp(mean, chol, act)
+        act = self.get_act(mean, chol).squeeze()
+        return act, self.get_logp(mean, chol, act)
 
     def test_agent(self, run):
         ep_ret_list = list()
@@ -322,3 +305,16 @@ class MPO(object):
             ep_ret_list.append(ep_ret)
         self.writer.add_scalar('test_ep_ret', np.array(ep_ret_list).mean(), run)
         print('test_ep_ret:', np.array(ep_ret_list).mean(), ' ', run)
+
+    def get_logp(self, mean, cov, action, expand=None):
+        if expand is not None:
+            dist = Independent(Normal(mean, cov), reinterpreted_batch_ndims=self.da).expand(expand)
+        else:
+            dist = Independent(Normal(mean, cov), reinterpreted_batch_ndims=self.da)
+        return dist.log_prob(action)
+
+    def get_act(self, mean, cov, amount=None):
+        dist = Independent(Normal(mean, cov), reinterpreted_batch_ndims=self.da)
+        if amount is not None:
+            return dist.sample(amount)
+        return dist.sample()

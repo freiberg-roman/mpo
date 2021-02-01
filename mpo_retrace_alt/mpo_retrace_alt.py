@@ -1,3 +1,4 @@
+from copy import deepcopy
 import numpy as np
 from scipy.optimize import minimize
 from tqdm import tqdm
@@ -6,8 +7,9 @@ import torch.nn as nn
 from torch.nn.utils import clip_grad_norm_
 from torch.distributions import Independent, Normal
 from torch.utils.tensorboard import SummaryWriter
-from mpo_retrace_alt.actor import ActorContinuous
-from mpo_retrace_alt.critic import CriticContinuous
+# from mpo_retrace_alt.actor import ActorContinuous
+# from mpo_retrace_alt.critic import CriticContinuous
+from mpo_retrace_alt.core import MLPActorCritic
 from common.tray_dyn_buf import DynamicTrajectoryBuffer
 from common.retrace import Retrace
 
@@ -77,10 +79,13 @@ class MPO(object):
         self.max_ep_len = max_ep_len
         self.polyak = polyak
 
-        self.actor = ActorContinuous(env).to(self.device)
-        self.critic = CriticContinuous(env).to(self.device)
-        self.target_actor = ActorContinuous(env).to(self.device)
-        self.target_critic = CriticContinuous(env).to(self.device)
+        ac = MLPActorCritic(env)
+        ac_targ = deepcopy(ac)
+
+        self.actor = ac.pi
+        self.critic = ac.q
+        self.target_actor = ac_targ.pi
+        self.target_critic = ac_targ.q
 
         for target_param, param in zip(self.target_actor.parameters(), self.actor.parameters()):
             target_param.data.copy_(param.data)
@@ -221,10 +226,10 @@ class MPO(object):
     def update_q_retrace(self, samples, run):
         self.critic_optimizer.zero_grad()
 
-        batch_q = self.critic.forward(samples['state'], samples['action'], dim=2)
+        batch_q = self.critic.forward(samples['state'], samples['action'])
         batch_q = torch.transpose(batch_q, 0, 1)
 
-        targ_q = self.target_critic.forward(samples['state'], samples['action'], dim=2)
+        targ_q = self.target_critic.forward(samples['state'], samples['action'])
         targ_q = torch.transpose(targ_q, 0, 1)
 
         # technically wrong: after debugging actor should be changed to target_actor
@@ -234,7 +239,7 @@ class MPO(object):
         targ_mean, targ_chol = self.actor.forward(samples['state'])
         targ_act = self.get_act(targ_mean, targ_chol)
 
-        exp_targ_q = self.target_critic.forward(samples['state'], targ_act, dim=2)
+        exp_targ_q = self.target_critic.forward(samples['state'], targ_act)
         exp_targ_q = torch.transpose(exp_targ_q, 0, 1)
 
         targ_act_logp = self.get_logp(targ_mean, targ_chol, samples['action']).unsqueeze(-1)

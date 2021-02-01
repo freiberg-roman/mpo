@@ -131,7 +131,7 @@ def mpo_retrace(
             while True:
                 a, logp = get_action(s)
                 # do step in environment
-                s2, r, d, _ = env.step(a.reshape(1, 1).numpy())
+                s2, r, d, _ = env.step(a.reshape(1, da).numpy())
                 ep_ret += r
                 ep_len += 1
 
@@ -161,7 +161,7 @@ def mpo_retrace(
             while not (d or (ep_len == max_ep_len)):
                 with torch.no_grad():
                     s, r, d, _ = env.step(
-                        get_action(s, deterministic=True)[0].reshape(1, 1).numpy())
+                        get_action(s, deterministic=True)[0].reshape(1, da).numpy())
                 ep_ret += r
                 ep_len += 1
             ep_ret_list.append(ep_ret)
@@ -170,13 +170,13 @@ def mpo_retrace(
 
     def get_logp(mean, cov, action, expand=None):
         if expand is not None:
-            dist = Independent(Normal(mean, cov), reinterpreted_batch_ndims=da).expand(expand)
+            dist = Independent(Normal(mean, cov), reinterpreted_batch_ndims=1).expand(expand)
         else:
-            dist = Independent(Normal(mean, cov), reinterpreted_batch_ndims=da)
+            dist = Independent(Normal(mean, cov), reinterpreted_batch_ndims=1)
         return dist.log_prob(action)
 
     def get_act(mean, cov, amount=None):
-        dist = Independent(Normal(mean, cov), reinterpreted_batch_ndims=da)
+        dist = Independent(Normal(mean, cov), reinterpreted_batch_ndims=1)
         if amount is not None:
             return dist.sample(amount)
         return dist.sample()

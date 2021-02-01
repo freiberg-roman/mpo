@@ -1,12 +1,7 @@
-from mpo_retrace_alt.mpo_retrace_alt import MPO
+from mpo_retrace_alt.mpo_retrace_alt import mpo_retrace
 import gym
 
 if __name__ == "__main__":
-    model = MPO(
-        device='cpu',
-        env=gym.make('Pendulum-v0'),
-
-    )
-
-    model.train()
+    mpo_retrace(env=gym.make('Pendulum-v0'))
+    # mpo_retrace(env=gym.make('Ant-v2'))
 

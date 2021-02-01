@@ -37,6 +37,21 @@ def gaussian_kl(μi, μ, Ai, A):
     return C_μ, C_Σ
 
 
+def get_logp(mean, cov, action, expand=None):
+    if expand is not None:
+        dist = MultivariateNormal(mean, scale_tril=cov).expand(expand)
+    else:
+        dist = MultivariateNormal(mean, scale_tril=cov)
+    return dist.log_prob(action)
+
+
+def get_act(mean, cov, amount=None):
+    dist = MultivariateNormal(mean, scale_tril=cov)
+    if amount is not None:
+        return dist.sample(amount)
+    return dist.sample()
+
+
 class MPO(object):
     def __init__(self,
                  device,
@@ -127,8 +142,8 @@ class MPO(object):
                         self.sample_traj(perform_traj=1)
 
                 # update q values
-                if r % 100 == 0:
-                    for target_param, param in zip(self.target_actor.parameters(), self.actor.parameters()):
+                if r % 50 == 0:
+                    for target_param, param in zip(self.target_critic.parameters(), self.critic.parameters()):
                         target_param.data.copy_(param.data)
 
                 B = self.batch_size
@@ -149,8 +164,7 @@ class MPO(object):
                 # sample M additional action for each state
                 with torch.no_grad():
                     b_μ, b_A = self.target_actor.forward(state_batch)  # (B,)
-                    b = MultivariateNormal(b_μ, scale_tril=b_A)  # (B,)
-                    sampled_actions = b.sample((M,))  # (M, B, da)
+                    sampled_actions = get_act(b_μ, b_A, amount=(M,))
                     expanded_states = state_batch[None, ...].expand(M, -1, -1)  # (M, B, ds)
                     target_q = self.target_critic.forward(
                         expanded_states.reshape(-1, ds),  # (M * B, ds)
@@ -174,20 +188,18 @@ class MPO(object):
                 # M-step
                 # update policy based on lagrangian
                 for _ in range(self.lagrange_iteration_num):
-                    μ, A = self.actor.forward(state_batch)
-                    π1 = MultivariateNormal(loc=μ, scale_tril=b_A)  # (B,)
-                    π2 = MultivariateNormal(loc=b_μ, scale_tril=A)  # (B,)
+                    mean, cov = self.actor.forward(state_batch)
                     loss_p = torch.mean(
                         qij * (
-                                π1.expand((M, B)).log_prob(sampled_actions)  # (M, B)
-                                + π2.expand((M, B)).log_prob(sampled_actions)  # (M, B)
+                                get_logp(mean, b_A, sampled_actions, expand=(M, B)) +
+                                get_logp(b_μ, cov, sampled_actions, expand=(M, B))
                         )
                     )
                     writer.add_scalar('loss_pi', loss_p.item(), run)
 
                     kl_mean, kl_cov = gaussian_kl(
-                        μi=b_μ, μ=μ,
-                        Ai=b_A, A=A)
+                        μi=b_μ, μ=mean,
+                        Ai=b_A, A=cov)
 
                     # Update lagrange multipliers by gradient descent
                     self.eta_mean -= self.alpha * (self.eps_mean - kl_mean).detach().item()
@@ -212,7 +224,8 @@ class MPO(object):
                     self.actor_optimizer.step()
 
                     if r % 50 == 0 and r >= 1:
-                        self.__update_param()
+                        for target_param, param in zip(self.target_actor.parameters(), self.actor.parameters()):
+                            target_param.data.copy_(param.data)
                     run += 1
 
             self.eta_mean = 0.0
@@ -221,22 +234,6 @@ class MPO(object):
             self.test_agent(it)
             writer.flush()
             it += 1
-
-    def updata_param_polyak(self):
-        # Update critic parameters
-        for target_param, param in zip(self.target_critic.parameters(), self.critic.parameters()):
-            target_param.data.copy_(param.data)
-
-    def __update_param(self):
-        """
-        Sets target parameters to trained parameter
-        """
-        # Update policy parameters
-        for target_param, param in zip(self.target_actor.parameters(), self.actor.parameters()):
-            target_param.data.copy_(param.data)
-        # Update critic parameters
-        for target_param, param in zip(self.target_critic.parameters(), self.critic.parameters()):
-            target_param.data.copy_(param.data)
 
     def update_q_retrace(self, samples, run):
         self.critic_optimizer.zero_grad()
@@ -247,15 +244,22 @@ class MPO(object):
         targ_q = self.target_critic.forward(samples['state'], samples['action'], dim=2)
         targ_q = torch.transpose(targ_q, 0, 1)
 
+        # technically wrong: after debugging actor should be changed to target_actor
+        for p in self.actor.parameters():
+            p.requires_grad = False
+
         targ_mean, targ_chol = self.actor.forward(samples['state'], traj=True, T=self.batch_q)
-        dist = MultivariateNormal(targ_mean, scale_tril=targ_chol)
-        targ_act = dist.sample()
+        targ_act = get_act(targ_mean, targ_chol)
 
         exp_targ_q = self.target_critic.forward(samples['state'], targ_act, dim=2)
         exp_targ_q = torch.transpose(exp_targ_q, 0, 1)
 
-        targ_act_logp = dist.log_prob(samples['action']).unsqueeze(-1)
+        targ_act_logp = get_logp(targ_mean, targ_chol, samples['action']).unsqueeze(-1)
         targ_act_logp = torch.transpose(targ_act_logp, 0, 1)
+
+        # technically wrong
+        for p in self.actor.parameters():
+            p.requires_grad = True
 
         retrace = Retrace()
         loss_q = retrace(Q=batch_q,
@@ -302,9 +306,8 @@ class MPO(object):
                                                                device=local_device).reshape(1, self.ds))
         if deterministic:
             return mean, None
-        dist = MultivariateNormal(mean, scale_tril=chol)
-        act = dist.sample().squeeze()
-        return act, dist.log_prob(act)
+        act = get_act(mean, chol).squeeze()
+        return act, get_logp(mean, chol, act)
 
     def test_agent(self, run):
         ep_ret_list = list()

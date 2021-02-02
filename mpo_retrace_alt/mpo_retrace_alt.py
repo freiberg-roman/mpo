@@ -3,56 +3,52 @@ import numpy as np
 from scipy.optimize import minimize
 from tqdm import tqdm
 import torch
-import torch.nn as nn
 from torch.nn.utils import clip_grad_norm_
 from torch.distributions import Independent, Normal
-from torch.utils.tensorboard import SummaryWriter
 from mpo_retrace_alt.core import MLPActorCritic
 from common.tray_dyn_buf import DynamicTrajectoryBuffer
 from common.retrace import Retrace
 
-local_device = "cpu"
-
 
 def mpo_retrace(
         env,
+        writer,
         eps_dual=0.1,
         eps_mean=0.1,
         eps_cov=0.0001,
         gamma=0.99,
         alpha=10.,
-        sample_episode_num=1,
-        max_ep_len=200,
-        len_rollout=200,
-        sample_action_num=20,
-        batch_size=768,
+        lr_pi=5e-4,
+        lr_q=2e-4,
+        sample_episodes=1,
+        episode_len=1000,
+        batch_act=20,
+        batch_s=768,
         batch_q=1,
-        episode_rerun_num=20,
+        episodes=20,
         epochs=20,
-        lagrange_iteration_num=5,
-        q_iteration_num=15,
-        polyak=0.995):
+        update_times_pi=5,
+        update_times_q=15,
+        update_q_after=50,
+        update_pi_after=25,
+        polyak=0.995,
+        local_device='cuda:0'):
     run = 0
-    writer = SummaryWriter(comment='MPO_no_eta_reset')
     iteration = 0
 
-    ac = MLPActorCritic(env)
-    ac_targ = deepcopy(ac)
+    ac = MLPActorCritic(env, local_device).to(device=local_device)
+    ac_targ = deepcopy(ac).to(device=local_device)
+
+    for p in ac_targ.parameters():
+        p.requires_grad = False
 
     actor = ac.pi
     critic = ac.q
     target_actor = ac_targ.pi
     target_critic = ac_targ.q
 
-    for target_param, param in zip(target_actor.parameters(), actor.parameters()):
-        target_param.data.copy_(param.data)
-        target_param.requires_grad = False
-    for target_param, param in zip(target_critic.parameters(), critic.parameters()):
-        target_param.data.copy_(param.data)
-        target_param.requires_grad = False
-
-    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=3e-4)
-    critic_optimizer = torch.optim.Adam(critic.parameters(), lr=2e-4)
+    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=lr_pi)
+    critic_optimizer = torch.optim.Adam(critic.parameters(), lr=lr_q)
 
     eta = 1.0
     eta_mean = 0.0
@@ -62,10 +58,10 @@ def mpo_retrace(
 
     replay_buffer = DynamicTrajectoryBuffer(ds,
                                             da,
-                                            max_ep_len,
-                                            max_ep_len,
-                                            len_rollout,
-                                            5000,
+                                            episode_len,
+                                            episode_len,
+                                            episode_len,
+                                            2000,
                                             local_device)
 
     def gaussian_kl(targ_mean, mean, targ_std, std):
@@ -106,7 +102,7 @@ def mpo_retrace(
         for p in actor.parameters():
             p.requires_grad = True
 
-        retrace = Retrace()
+        retrace = Retrace(device=local_device)
         loss_q = retrace(Q=batch_q,
                          expected_target_Q=exp_targ_q,
                          target_Q=targ_q,
@@ -116,32 +112,29 @@ def mpo_retrace(
                          gamma=gamma
                          )
         writer.add_scalar('q_loss', loss_q.item(), run)
-        writer.add_scalar('q', targ_q.detach().numpy().mean(), run)
-        writer.add_scalar('q_min', targ_q.detach().numpy().min(), run)
-        writer.add_scalar('q_max', targ_q.detach().numpy().max(), run)
+        writer.add_scalar('q', targ_q.detach().mean().item(), run)
+        writer.add_scalar('q_min', targ_q.detach().min().item(), run)
+        writer.add_scalar('q_max', targ_q.detach().max().item(), run)
 
         loss_q.backward()
         critic_optimizer.step()
 
     def sample_traj(perform_traj):
-        for _ in range(perform_traj):
+        for i in range(perform_traj):
 
             # sample steps
-            s, ep_ret, ep_len = env.reset(), 0, 0
+            s, _, ep_len = env.reset(), 0, 0
             while True:
                 a, logp = get_action(s)
                 # do step in environment
-                s2, r, d, _ = env.step(a.reshape(1, da).numpy())
-                ep_ret += r
+                s2, r, d, _ = env.step(a.reshape(1, da).cpu().numpy())
                 ep_len += 1
 
-                d = False if ep_len == max_ep_len else d
-
-                replay_buffer.store(s.reshape(ds), s2.reshape(ds), a, r, logp.cpu().numpy(), d)
+                replay_buffer.store(s.reshape(ds), s2.reshape(ds), a.cpu().numpy(), r, logp.cpu().numpy(), d)
                 s = s2
                 # reset environment (ignore done signal)
-                if ep_len == max_ep_len:
-                    s, ep_ret, ep_len = env.reset(), 0, 0
+                if ep_len == episode_len:
+                    s, _, ep_len = env.reset(), 0, 0
                     replay_buffer.next_traj()
                     break
 
@@ -158,10 +151,10 @@ def mpo_retrace(
         ep_ret_list = list()
         for _ in tqdm(range(200), desc="testing model"):
             s, d, ep_ret, ep_len = env.reset(), False, 0, 0
-            while not (d or (ep_len == max_ep_len)):
+            while not (d or (ep_len == episode_len)):
                 with torch.no_grad():
                     s, r, d, _ = env.step(
-                        get_action(s, deterministic=True)[0].reshape(1, da).numpy())
+                        get_action(s, deterministic=True)[0].reshape(1, da).cpu().numpy())
                 ep_ret += r
                 ep_len += 1
             ep_ret_list.append(ep_ret)
@@ -183,29 +176,30 @@ def mpo_retrace(
 
     for it in range(iteration, epochs):
         # Find better policy by gradient descent
-        for r in tqdm(range(episode_rerun_num * 25), desc='updating nets'):
+        for r in tqdm(range(episodes * 25), desc='updating nets'):
             if r % 25 == 0:
+                # update replay buffer
                 if it == 0 and r == 0:
-                    # update replay buffer
+                    # for better start sample more trajectories
                     sample_traj(perform_traj=10)
                 else:
-                    sample_traj(perform_traj=sample_episode_num)
+                    sample_traj(perform_traj=sample_episodes)
 
             # update q values
-            if r % 50 == 0:
+            if r % update_q_after == 0:
                 for target_param, param in zip(target_critic.parameters(), critic.parameters()):
                     target_param.data.copy_(param.data)
 
-            B = batch_size
-            M = sample_action_num
+            B = batch_s
+            M = batch_act
 
             # update q with retrace
-            for _ in range(q_iteration_num):
+            for _ in range(update_times_q):
                 rows, cols = replay_buffer.sample_idxs(batch_size=batch_q)
                 samples = replay_buffer.sample_trajectories(rows, cols)
                 update_q_retrace(samples, run)
 
-            rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_size)
+            rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
             samples = replay_buffer.sample_batch(rows, cols)
             state_batch = samples['state']
 
@@ -235,7 +229,7 @@ def mpo_retrace(
 
             # M-step
             # update policy based on lagrangian
-            for _ in range(lagrange_iteration_num):
+            for _ in range(update_times_pi):
                 mean, std = actor.forward(state_batch)
                 loss_p = torch.mean(
                     qij * (
@@ -271,7 +265,7 @@ def mpo_retrace(
                 clip_grad_norm_(actor.parameters(), 0.1)
                 actor_optimizer.step()
 
-                if r % 50 == 0 and r >= 1:
+                if r % update_pi_after == 0 and r >= 1:
                     for target_param, param in zip(target_actor.parameters(), actor.parameters()):
                         target_param.data.copy_(param.data)
                 run += 1

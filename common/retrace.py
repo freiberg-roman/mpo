@@ -2,8 +2,8 @@ import torch
 
 
 class Retrace:
-    def __init__(self):
-        self.device = "cpu"
+    def __init__(self, device):
+        self.device = device
 
     def __call__(self,
                  Q,

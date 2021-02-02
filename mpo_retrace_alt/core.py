@@ -26,7 +26,7 @@ def count_vars(module):
 
 class GaussianMLPActor(nn.Module):
 
-    def __init__(self, env, hidden_sizes, activation):
+    def __init__(self, env, device, hidden_sizes, activation):
         super().__init__()
         state_dim = env.observation_space.shape[0]
         act_dim = env.action_space.shape[0]
@@ -37,10 +37,11 @@ class GaussianMLPActor(nn.Module):
         self.std_layer = nn.Linear(hidden_sizes[-1], act_dim)
 
         self.act_dim = act_dim
+        self.device = device
 
     def forward(self, state):
-        action_low = torch.from_numpy(self.env.action_space.low)[None, ...]
-        action_high = torch.from_numpy(self.env.action_space.high)[None, ...]
+        action_low = torch.from_numpy(self.env.action_space.low)[None, ...].to(self.device)
+        action_high = torch.from_numpy(self.env.action_space.high)[None, ...].to(self.device)
         net_out = self.net(state)
         mean = torch.sigmoid(self.mean_layer(net_out))
         mean = action_low + (action_high - action_low) * mean
@@ -80,11 +81,11 @@ class MLPQFunction(nn.Module):
 
 class MLPActorCritic(nn.Module):
 
-    def __init__(self, env, hidden_sizes_pi=(256, 256),
+    def __init__(self, env, device, hidden_sizes_pi=(256, 256),
                  hidden_sizes_q=(256, 256), activation=nn.ReLU):
         super().__init__()
 
-        self.pi = GaussianMLPActor(env, hidden_sizes_pi, activation)
+        self.pi = GaussianMLPActor(env, device, hidden_sizes_pi, activation)
         self.q = MLPQFunction(env, hidden_sizes_q, activation)
 
     def act(self, obs, deterministic=False):

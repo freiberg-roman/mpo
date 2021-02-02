@@ -20,12 +20,74 @@
 pip install -e
 cd eval
 python mpo_eta_learn.py \
-  --env Pendulum-v0 \
-  --name mpo_pendulum_eta_10_10 \
-  --epochs 10 \
-  --repeat 1 \
+  --env HalfCheetah-v2 \
+  --name mpo_eta_cheetah_10_10 \
+  --epochs 20 \
+  --repeat 3 \
   --update_pi_after 10 \
   --update_q_after 10 \
-  --iterate_pi 5 \
-  --iterate_q 5 \
-  --batch_retrace 4 \
+  --iterate_pi 10 \
+  --iterate_q 10 \
+  --batch_retrace 8 \
+  --episode_length 1000
+
+python mpo_eta_learn.py \
+  --env HalfCheetah-v2 \
+  --name mpo_eta_cheetah_25_25 \
+  --epochs 20 \
+  --repeat 3 \
+  --update_pi_after 25 \
+  --update_q_after 25 \
+  --iterate_pi 10 \
+  --iterate_q 10 \
+  --batch_retrace 8 \
+  --episode_length 1000
+
+python mpo_eta_learn.py \
+  --env HalfCheetah-v2 \
+  --name mpo_eta_cheetah_50_50 \
+  --epochs 20 \
+  --repeat 3 \
+  --update_pi_after 50 \
+  --update_q_after 50 \
+  --iterate_pi 10 \
+  --iterate_q 10 \
+  --batch_retrace 8 \
+  --episode_length 1000
+
+python mpo_eta_learn.py \
+  --env HalfCheetah-v2 \
+  --name mpo_eta_cheetah_100_100 \
+  --epochs 20 \
+  --repeat 3 \
+  --update_pi_after 100 \
+  --update_q_after 100 \
+  --iterate_pi 10 \
+  --iterate_q 10 \
+  --batch_retrace 8 \
+  --episode_length 1000
+
+python mpo_eta_learn.py \
+  --env HalfCheetah-v2 \
+  --name mpo_eta_cheetah_250_250 \
+  --epochs 20 \
+  --repeat 3 \
+  --update_pi_after 250 \
+  --update_q_after 250 \
+  --iterate_pi 10 \
+  --iterate_q 10 \
+  --batch_retrace 8 \
+  --episode_length 1000
+
+python mpo_eta_learn.py \
+  --env HalfCheetah-v2 \
+  --name mpo_eta_cheetah_500_500 \
+  --epochs 20 \
+  --repeat 3 \
+  --update_pi_after 500 \
+  --update_q_after 500 \
+  --iterate_pi 10 \
+  --iterate_q 10 \
+  --batch_retrace 8 \
+  --episode_length 1000
+

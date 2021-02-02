@@ -1,5 +1,5 @@
 import argparse
-from mpo_retrace_alt.mpo_retrace_alt import mpo_retrace
+from mpo_retrace.mpo_retrace import mpo_retrace
 import gym
 from torch.utils.tensorboard import SummaryWriter
 
@@ -21,6 +21,8 @@ if __name__ == '__main__':
     parser.add_argument('--repeat', type=int, default=1)
     parser.add_argument('--update_q_after', type=int, default=100)
     parser.add_argument('--update_pi_after', type=int, default=100)
+    parser.add_argument('--iterate_q', type=int, default=15)
+    parser.add_argument('--iterate_pi', type=int, default=5)
     parser.add_argument('--epochs', type=int, default=10)
     args = parser.parse_args()
 
@@ -44,5 +46,7 @@ if __name__ == '__main__':
                     batch_q=args.batch_retrace,
                     update_q_after=args.update_q_after,
                     update_pi_after=args.update_pi_after,
+                    update_times_q=args.iterate_q,
+                    update_times_pi=args.iterate_pi,
                     epochs=args.epochs
                     )

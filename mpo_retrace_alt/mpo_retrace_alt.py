@@ -13,6 +13,7 @@ from common.retrace import Retrace
 
 local_device = "cpu"
 
+
 def mpo_retrace(
         env,
         eps_dual=0.1,
@@ -52,7 +53,6 @@ def mpo_retrace(
 
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=3e-4)
     critic_optimizer = torch.optim.Adam(critic.parameters(), lr=2e-4)
-    norm_loss_q = nn.SmoothL1Loss()
 
     eta = 1.0
     eta_mean = 0.0
@@ -147,8 +147,8 @@ def mpo_retrace(
 
     def get_action(state, deterministic=False):
         mean, chol = target_actor.forward(torch.as_tensor(state,
-                                                               dtype=torch.float32,
-                                                               device=local_device).reshape(1, ds))
+                                                          dtype=torch.float32,
+                                                          device=local_device).reshape(1, ds))
         if deterministic:
             return mean, None
         act = get_act(mean, chol).squeeze()

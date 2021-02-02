@@ -19,36 +19,23 @@
 
 pip install -e
 cd eval
-python mpo_learn.py \
+python mpo_polyak_learn.py \
   --env Pendulum-v0 \
-  --name mpo_pendulum_100_100 \
+  --name mpo_polyak_pendulum_q_100 \
   --epochs 10 \
   --repeat 1 \
-  --update_pi_after 100 \
   --update_q_after 100 \
-  --iterate_pi 5 \
   --iterate_q 5 \
   --batch_retrace 4 \
 
-# python mpo_learn.py \
+# failed
+# python mpo_polyak_learn.py \
 #   --env Pendulum-v0 \
-#   --name mpo_pendulum_10_10 \
+#   --name mpo_polyak_pendulum \
 #   --epochs 10 \
 #   --repeat 1 \
-#   --update_pi_after 10 \
-#   --update_q_after 10 \
-#   --iterate_pi 5 \
-#   --iterate_q 5 \
-#   --batch_retrace 4 \
-
-# python mpo_learn.py \
-#   --env Pendulum-v0 \
-#   --name mpo_pendulum_1_1_update \
-#   --epochs 10 \
-#   --repeat 3 \
 #   --update_pi_after 1 \
 #   --update_q_after 1 \
-#   --iterate_pi 5 \
 #   --iterate_q 5 \
 #   --batch_retrace 2 \
 

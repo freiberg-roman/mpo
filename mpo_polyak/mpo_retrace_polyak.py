@@ -191,37 +191,35 @@ def mpo_retrace(
                 samples = replay_buffer.sample_trajectories(rows, cols)
                 update_q_retrace(samples, run)
 
-            rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
-            samples = replay_buffer.sample_batch(rows, cols)
-            state_batch = samples['state']
+                rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
+                samples = replay_buffer.sample_batch(rows, cols)
+                state_batch = samples['state']
 
-            # sample M additional action for each state
-            with torch.no_grad():
-                b_μ, b_A = target_actor.forward(state_batch)  # (B,)
-                sampled_actions = get_act(b_μ, b_A, amount=(M,))
-                expanded_states = state_batch[None, ...].expand(M, -1, -1)  # (M, B, ds)
-                target_q = target_critic.forward(
-                    expanded_states.reshape(-1, ds),  # (M * B, ds)
-                    sampled_actions.reshape(-1, da)  # (M * B, da)
-                ).reshape(M, B)  # (M, B)
-                target_q_np = target_q.cpu().numpy()  # (M, B)
+                # sample M additional action for each state
+                with torch.no_grad():
+                    b_μ, b_A = target_actor.forward(state_batch)  # (B,)
+                    sampled_actions = get_act(b_μ, b_A, amount=(M,))
+                    expanded_states = state_batch[None, ...].expand(M, -1, -1)  # (M, B, ds)
+                    target_q = target_critic.forward(
+                        expanded_states.reshape(-1, ds),  # (M * B, ds)
+                        sampled_actions.reshape(-1, da)  # (M * B, da)
+                    ).reshape(M, B)  # (M, B)
+                    target_q_np = target_q.cpu().numpy()  # (M, B)
 
-            # E-step
-            def dual(eta):
-                max_q = np.max(target_q_np, 0)
-                return eta * eps_dual + np.mean(max_q) \
-                       + eta * np.mean(np.log(np.mean(np.exp((target_q_np - max_q) / eta), axis=0)))
+                # E-step
+                def dual(eta):
+                    max_q = np.max(target_q_np, 0)
+                    return eta * eps_dual + np.mean(max_q) \
+                           + eta * np.mean(np.log(np.mean(np.exp((target_q_np - max_q) / eta), axis=0)))
 
-            bounds = [(1e-6, None)]
-            res = minimize(dual, np.array([eta]), method='SLSQP', bounds=bounds)
-            eta = res.x[0]
-            writer.add_scalar('eta', eta, run)
+                bounds = [(1e-6, None)]
+                res = minimize(dual, np.array([eta]), method='SLSQP', bounds=bounds)
+                eta = res.x[0]
+                writer.add_scalar('eta', eta, run)
 
-            qij = torch.softmax(target_q / eta, dim=0)  # (M, B) or (da, B)
+                qij = torch.softmax(target_q / eta, dim=0)  # (M, B) or (da, B)
 
-            # M-step
-            # update policy based on lagrangian
-            for _ in range(update_times_pi):
+                # M step
                 mean, std = actor.forward(state_batch)
                 loss_p = torch.mean(
                     qij * (
@@ -257,10 +255,10 @@ def mpo_retrace(
                 clip_grad_norm_(actor.parameters(), 0.1)
                 actor_optimizer.step()
 
-                if r % update_pi_after == 0 and r >= 1:
-                    for target_param, param in zip(target_actor.parameters(), actor.parameters()):
-                        target_param.data.copy_(param.data)
-                run += 1
+                for targ_p, p in zip(target_actor.parameters(), actor.parameters()):
+                    targ_p.data.mul_(polyak * p.data)
+                    targ_p.data.add_((1-polyak) * p.data)
+            run += 1
 
         test_agent(it)
         writer.flush()

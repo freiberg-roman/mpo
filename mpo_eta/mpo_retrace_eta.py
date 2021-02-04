@@ -1,7 +1,6 @@
 from copy import deepcopy
 from itertools import chain
 import numpy as np
-from scipy.optimize import minimize
 from tqdm import tqdm
 import torch
 from torch.nn.utils import clip_grad_norm_

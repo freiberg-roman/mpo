@@ -5,12 +5,12 @@ from tqdm import tqdm
 import torch
 from torch.nn.utils import clip_grad_norm_
 from torch.distributions import Independent, Normal
-from mpo_retrace.core import MLPActorCritic
+from mpo.core import MLPActorCritic
 from common.tray_dyn_buf import DynamicTrajectoryBuffer
 from common.retrace import Retrace
 
 
-def mpo_retrace(
+def mpo(
         env,
         writer,
         eps_dual=0.1,
@@ -31,7 +31,7 @@ def mpo_retrace(
         update_times_q=15,
         update_q_after=50,
         update_pi_after=25,
-        local_device='cuda:0'):
+        local_device='cpu'):
     run = 0
     iteration = 0
 

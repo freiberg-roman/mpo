@@ -27,11 +27,10 @@ def mpo(
         batch_q=1,
         episodes=20,
         epochs=20,
-        update_times_pi=5,
-        update_times_q=15,
+        update_inner=4,
         update_q_after=50,
         update_pi_after=25,
-        local_device='cpu'):
+        local_device='cuda:0'):
     run = 0
     iteration = 0
 
@@ -58,9 +57,9 @@ def mpo(
 
     replay_buffer = DynamicTrajectoryBuffer(ds,
                                             da,
+                                            1,
                                             episode_len,
-                                            episode_len,
-                                            episode_len,
+                                            1,
                                             5000,
                                             local_device)
 
@@ -121,11 +120,11 @@ def mpo(
                 # do step in environment
                 s2, r, d, _ = env.step(a.reshape(1, da).cpu().numpy())
                 ep_len += 1
-
                 replay_buffer.store(s.reshape(ds), s2.reshape(ds), a.cpu().numpy(), r, logp.cpu().numpy(), d)
                 s = s2
-                # reset environment (ignore done signal)
-                if ep_len == episode_len:
+
+                d = False if ep_len == episode_len else d
+                if ep_len == episode_len or d:
                     s, _, ep_len = env.reset(), 0, 0
                     replay_buffer.next_traj()
                     break
@@ -186,34 +185,35 @@ def mpo(
             if r % update_q_after == 0:
                 for target_param, param in zip(target_critic.parameters(), critic.parameters()):
                     target_param.data.copy_(param.data)
+            if r % update_pi_after == 0 and r >= 1:
+                for target_param, param in zip(target_actor.parameters(), actor.parameters()):
+                    target_param.data.copy_(param.data)
 
             B = batch_s
             M = batch_act
 
             # update q with retrace
-            for _ in range(update_times_q):
-                rows, cols = replay_buffer.sample_idxs(batch_size=batch_q)
-                samples = replay_buffer.sample_trajectories(rows, cols)
+            for _ in range(update_inner):
+                samples = replay_buffer.sample_traj()
                 update_q_retrace(samples, run)
 
-            rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
-            samples = replay_buffer.sample_batch(rows, cols)
-            state_batch = samples['state']
+                rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)
+                samples = replay_buffer.sample_batch(rows, cols)
+                state_batch = samples['state']
 
-            # sample M additional action for each state
-            with torch.no_grad():
-                b_μ, b_A = target_actor.forward(state_batch)  # (B,)
-                sampled_actions = get_act(b_μ, b_A, amount=(M,))
-                expanded_states = state_batch[None, ...].expand(M, -1, -1)  # (M, B, ds)
-                target_q = target_critic.forward(
-                    expanded_states.reshape(-1, ds),  # (M * B, ds)
-                    sampled_actions.reshape(-1, da)  # (M * B, da)
-                ).reshape(M, B)  # (M, B)
+                # sample M additional action for each state
+                with torch.no_grad():
+                    b_μ, b_A = target_actor.forward(state_batch)  # (B,)
+                    sampled_actions = get_act(b_μ, b_A, amount=(M,))
+                    expanded_states = state_batch[None, ...].expand(M, -1, -1)  # (M, B, ds)
+                    target_q = target_critic.forward(
+                        expanded_states.reshape(-1, ds),  # (M * B, ds)
+                        sampled_actions.reshape(-1, da)  # (M * B, da)
+                    ).reshape(M, B)  # (M, B)
 
-            # M-step
-            qij = torch.softmax(target_q / eta.item(), dim=0)  # (M, B) or (da, B)
-            # update policy based on lagrangian
-            for _ in range(update_times_pi):
+                # M-step
+                qij = torch.softmax(target_q / eta.item(), dim=0)  # (M, B) or (da, B)
+                # update policy based on lagrangian
                 mean, std = actor.forward(state_batch)
                 loss_p = torch.mean(
                     qij * (
@@ -256,11 +256,9 @@ def mpo(
                 clip_grad_norm_(actor.parameters(), 0.1)
                 actor_optimizer.step()
 
-                if r % update_pi_after == 0 and r >= 1:
-                    for target_param, param in zip(target_actor.parameters(), actor.parameters()):
-                        target_param.data.copy_(param.data)
                 run += 1
 
         test_agent(it)
+        writer.add_scalar('performed_steps', replay_buffer.stored_interactions(), it)
         writer.flush()
         it += 1

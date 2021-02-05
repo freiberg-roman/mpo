@@ -19,13 +19,12 @@ if __name__ == '__main__':
     parser.add_argument('--batch_retrace', type=int, default=1)
     parser.add_argument('--name', type=str, default='debug')
     parser.add_argument('--repeat', type=int, default=1)
-    parser.add_argument('--update_q_after', type=int, default=100)
-    parser.add_argument('--update_pi_after', type=int, default=100)
-    parser.add_argument('--iterate_q', type=int, default=15)
-    parser.add_argument('--iterate_pi', type=int, default=5)
+    parser.add_argument('--update_q_after', type=int, default=20)
+    parser.add_argument('--update_pi_after', type=int, default=20)
+    parser.add_argument('--update_inner', type=int, default=4)
     parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--lr_pi', type=float, default=5e-4)
-    parser.add_argument('--lr_q', type=float, default=2e-4)
+    parser.add_argument('--lr_q', type=float, default=1e-4)
     args = parser.parse_args()
 
     for i in range(args.repeat):
@@ -48,8 +47,7 @@ if __name__ == '__main__':
             batch_q=args.batch_retrace,
             update_q_after=args.update_q_after,
             update_pi_after=args.update_pi_after,
-            update_times_q=args.iterate_q,
-            update_times_pi=args.iterate_pi,
+            update_inner=args.update_inner,
             epochs=args.epochs,
             lr_pi=args.lr_pi,
             lr_q=args.lr_q

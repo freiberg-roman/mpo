@@ -23,27 +23,30 @@ pip install -e
 cd eval
 python mpo_learn.py \
   --env HalfCheetah-v2 \
-  --name mpo_eta_cheetah_q_0001 \
-  --epochs 20 \
-  --repeat 3 \
-  --update_pi_after 25 \
-  --update_q_after 25 \
-  --iterate_pi 10 \
-  --iterate_q 10 \
-  --batch_retrace 8 \
+  --name mpo_eta_cheetah_q_0001_15_15 \
+  --epochs 15 \
+  --repeat 2 \
+  --update_pi_after 15 \
+  --update_q_after 15 \
   --episode_length 1000 \
   --lr_q 0.0001
 
 python mpo_learn.py \
   --env HalfCheetah-v2 \
-  --name mpo_eta_cheetah_q_00005 \
-  --epochs 20 \
-  --repeat 3 \
+  --name mpo_eta_cheetah_q_0001_25_25 \
+  --epochs 15 \
+  --repeat 2 \
   --update_pi_after 25 \
   --update_q_after 25 \
-  --iterate_pi 10 \
-  --iterate_q 10 \
-  --batch_retrace 8 \
   --episode_length 1000 \
-  --lr_q 0.00005
+  --lr_q 0.0001
 
+python mpo_learn.py \
+  --env HalfCheetah-v2 \
+  --name mpo_eta_cheetah_q_0001_50_50 \
+  --epochs 15 \
+  --repeat 2 \
+  --update_pi_after 50 \
+  --update_q_after 50 \
+  --episode_length 1000 \
+  --lr_q 0.0001

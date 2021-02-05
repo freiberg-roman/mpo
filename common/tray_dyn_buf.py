@@ -107,5 +107,17 @@ class DynamicTrajectoryBuffer:
         return {k: torch.as_tensor(v, dtype=torch.float32,
                                    device=self.device) for k, v in batch.items()}
 
+    def sample_traj(self):
+        row = np.random.randint(0, self.size_traj)
+        len = self.len_used[row]
+        batch = dict(
+            state=self.s_buf[row, 0:len],
+            action=self.action_buf[row, 0:len],
+            reward=self.rew_buf[row, 0:len],
+            pi_logp=self.pi_logp_buf[row, 0:len],
+        )
+        return {k: torch.as_tensor(v, dtype=torch.float32,
+                                   device=self.device).unsqueeze(1) for k, v in batch.items()}
+
     def stored_interactions(self):
         return self.interactions

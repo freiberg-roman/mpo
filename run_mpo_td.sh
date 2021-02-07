@@ -15,7 +15,7 @@
 # parser.add_argument('--update_pi_after', type=int, default=100)
 # parser.add_argument('--iterate_q', type=int, default=15)
 # parser.add_argument('--iterate_pi', type=int, default=5)
-# parser.add_argument('--epochs', type=int, default=10)
+# parser.add_argument('--epochs', type=int, default=9)
 # parser.add_argument('--lr_pi', type=float, default=5e-4
 # parser.add_argument('--lr_q', type=float, default=2e-4)
 

@@ -19,7 +19,7 @@ def mpo(
         alpha=10.,
         lr_pi=5e-4,
         lr_q=2e-4,
-        q_alpha=0.2,
+        q_alpha=0.0,
         sample_episodes=1,
         episode_len=200,
         batch_act=20,
@@ -35,8 +35,8 @@ def mpo(
     iteration = 0
 
     eta = torch.tensor([1.0], device=local_device, requires_grad=True)
-    eta_mean = 0.0
-    eta_cov = 0.0
+    eta_mean_t = torch.tensor([0.0], device=local_device, requires_grad=True)
+    eta_cov_t = torch.tensor([0.0], device=local_device, requires_grad=True)
 
     ac = MLPActorCritic(env, local_device).to(device=local_device)
     ac_targ = deepcopy(ac).to(device=local_device)
@@ -47,6 +47,7 @@ def mpo(
 
     actor_optimizer = torch.optim.Adam(chain(ac.pi.parameters(), [eta]), lr=lr_pi)
     critic_optimizer = torch.optim.Adam(q_params, lr=lr_q)
+    lagrauge_optimizer = torch.optim.Adam(chain([eta_mean_t], [eta_cov_t]), lr=0.01)
 
     ds = env.observation_space.shape[0]
     da = env.action_space.shape[0]
@@ -225,12 +226,21 @@ def mpo(
                     targ_std=b_A, std=std)
 
                 # Update lagrange multipliers by gradient descent
-                eta_mean -= alpha * (eps_mean - c_mean).detach().item()
+                lagrauge_optimizer.zero_grad()
+                eta_mean_t.clamp(min=0.0)
+                eta_cov_t.clamp(min=0.0)
+                loss_eta_mean = eta_mean_t * (eps_mean - c_mean.item())
+                loss_eta_cov = eta_cov_t * (eps_cov - c_cov.item())
+                loss_lagrauge = loss_eta_mean + loss_eta_cov
+                loss_lagrauge.backward()
+                lagrauge_optimizer.step()
+
+                eta_mean = eta_mean_t.item()
                 if eta_mean < 0.0:
                     eta_mean = 0.0
                 writer.add_scalar('eta_mean', eta_mean, run)
 
-                eta_cov -= alpha * (eps_cov - c_cov).detach().item()
+                eta_cov = eta_cov_t.item()
                 if eta_cov < 0.0:
                     eta_cov = 0.0
                 writer.add_scalar('eta_cov', eta_cov, run)

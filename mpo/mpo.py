@@ -57,9 +57,9 @@ def mpo(
 
     replay_buffer = DynamicTrajectoryBuffer(ds,
                                             da,
-                                            1,
+                                            10,
                                             episode_len,
-                                            1,
+                                            10,
                                             5000,
                                             local_device)
 
@@ -194,7 +194,8 @@ def mpo(
 
             # update q with retrace
             for _ in range(update_inner):
-                samples = replay_buffer.sample_traj()
+                rows, cols = replay_buffer.sample_idxs(batch_size=batch_s)
+                samples = replay_buffer.sample_batch(rows, cols)
                 update_q_retrace(samples, run)
 
                 rows, cols = replay_buffer.sample_idxs_batch(batch_size=batch_s)

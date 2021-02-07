@@ -24,8 +24,8 @@ if __name__ == '__main__':
     parser.add_argument('--update_inner', type=int, default=4)
     parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--lr_pi', type=float, default=5e-4)
-    parser.add_argument('--lr_q', type=float, default=3e-4)
-    parser.add_argument('--q_alpha', type=float, default=0.2)
+    parser.add_argument('--lr_q', type=float, default=5e-4)
+    parser.add_argument('--q_alpha', type=float, default=0.0)
     args = parser.parse_args()
 
     for i in range(args.repeat):

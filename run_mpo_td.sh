@@ -21,43 +21,24 @@
 
 pip install -e
 cd eval
+
 python mpo_td0_learn.py \
-  --env Pendulum-v0 \
-  --name mpo_td0_pendulum_entropy \
+  --env HalfCheetah-v2 \
+  --name mpo_td0_cheetha_entropy_adam_lagrauge \
   --epochs 20 \
   --repeat 3 \
-  --update_pi_after 25 \
-  --update_q_after 25 \
-  --episode_length 200 \
+  --update_pi_after 20 \
+  --update_q_after 20 \
+  --episode_length 1000 \
   --q_alpha 0.2
 
 python mpo_td0_learn.py \
-  --env Pendulum-v0 \
-  --name mpo_td0_pendulum \
+  --env HalfCheetah-v2 \
+  --name epo_td0_cheetha_adam_lagrauge \
   --epochs 20 \
   --repeat 3 \
-  --update_pi_after 25 \
-  --update_q_after 25 \
-  --episode_length 200 \
+  --update_pi_after 20 \
+  --update_q_after 20 \
+  --episode_length 1000 \
   --q_alpha 0.0
-
-python mpo_td0_learn.py \
-  --env HalfCheetah-v2 \
-  --name mpo_td0_cheetha_entropy \
-  --epochs 20 \
-  --repeat 3 \
-  --update_pi_after 20 \
-  --update_q_after 20 \
-  --episode_length 1000 \
-  --q_alpha 0.2
-
-python mpo_td0_learn.py \
-  --env HalfCheetah-v2 \
-  --name mpo_td0_cheetha_entropy \
-  --epochs 20 \
-  --repeat 3 \
-  --update_pi_after 20 \
-  --update_q_after 20 \
-  --episode_length 1000 \
-  --q_alpha 0.2
 

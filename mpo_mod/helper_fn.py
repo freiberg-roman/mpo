@@ -5,8 +5,9 @@ from mpo_mod.core import GaussianMLPActor
 
 
 class SamplerTrajectory:
-    def __init__(self, env, device, buffer, actor_step, max_ep_len):
+    def __init__(self, env, device, writer, buffer, actor_step, max_ep_len):
         self.env = env
+        self.writer = writer
         self.device = device
         self.buffer = buffer
         self.actor_step = actor_step
@@ -14,7 +15,7 @@ class SamplerTrajectory:
         self.ds = env.observation_space.shape[0]
         self.max_ep_len = max_ep_len
 
-    def __call__(self):
+    def __call__(self, it):
         s, _, ep_len = self.env.reset(), 0, 0
         while True:
             a, logp = self.actor_step(s)
@@ -38,6 +39,8 @@ class SamplerTrajectory:
                 s, _, ep_len = self.env.reset(), 0, 0
                 self.buffer.next_traj()
                 break
+
+        self.writer.add_scalar('performed_steps', self.buffer.stored_interactions(), it)
 
 
 class TargetAction:

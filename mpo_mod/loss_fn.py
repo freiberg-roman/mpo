@@ -86,6 +86,7 @@ class PolicyUpdateNonParametric:
                  eps_mean,
                  eps_cov,
                  eps_dual,
+                 lr_kl,
                  buffer,
                  batch_size,
                  bartch_size_act,
@@ -104,12 +105,13 @@ class PolicyUpdateNonParametric:
         self.M = bartch_size_act
         self.ds = ds
         self.da = da
-        self.update_lagrauge = UpdateLagrangeTrustRegionOptimizer(
+        self.update_lagrange = UpdateLagrangeTrustRegionOptimizer(
             writer,
             torch.tensor([0.0], device=device, requires_grad=True),
             torch.tensor([0.0], device=device, requires_grad=True),
             eps_mean,
-            eps_cov
+            eps_cov,
+            lr_kl
         )
 
     def __call__(self, run):
@@ -149,10 +151,9 @@ class PolicyUpdateNonParametric:
             targ_std=b_A, std=std)
 
         # Update lagrange multipliers by gradient descent
-        eta_mean, eta_cov = self.update_lagrauge(c_mean, c_cov, run)
+        eta_mean, eta_cov = self.update_lagrange(c_mean, c_cov, run)
 
         # learn eta together with other policy parameters
-
         self.optimizer.zero_grad()
         loss_eta = dual(self.eta, targ_q, self.eps_dual)
         loss_l = -(
@@ -175,9 +176,11 @@ class UpdateLagrangeTrustRegionOptimizer:
                  eta_mean,
                  eta_cov,
                  eps_mean,
-                 eps_cov):
+                 eps_cov,
+                 lr_kl):
         self.writer = writer
-        self.optimizer = torch.optim.Adam(itertools.chain([eta_mean], [eta_cov]))
+        self.optimizer = torch.optim.Adam(
+            itertools.chain([eta_mean], [eta_cov]), lr=lr_kl)
         self.eps_mean = eps_mean
         self.eps_cov = eps_cov
         self.eta_mean = eta_mean

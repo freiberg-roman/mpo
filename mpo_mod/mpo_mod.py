@@ -17,10 +17,11 @@ def mpo_runner(writer,
     performed_steps = 0
     for it in range(iteration, epochs):
         # Find better policy by gradient descent
+        performed_steps = 0
         while performed_steps < min_steps_per_epoch:
             performed_steps += sampler(it)
 
-        for r in tqdm(update_steps, desc='updating nets'):
+        for r in tqdm(range(update_steps), desc='updating nets'):
 
             # update target networks
             if r % update_after == 0:
@@ -28,9 +29,9 @@ def mpo_runner(writer,
                     target_param.data.copy_(param.data)
 
             # update q values
-            q_update(r)
+            q_update(it * update_steps + r)
             # update policy
-            pi_update(r)
+            pi_update(it * update_steps + r)
 
         test_agent(it)
         writer.flush()

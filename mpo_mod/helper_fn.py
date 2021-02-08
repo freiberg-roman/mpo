@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-import tqdm
+from tqdm import tqdm
 from mpo_mod.core import GaussianMLPActor
 
 
@@ -36,11 +36,11 @@ class SamplerTrajectory:
 
             # end of trajectory handling
             if ep_len == self.max_ep_len or d:
-                s, _, ep_len = self.env.reset(), 0, 0
                 self.buffer.next_traj()
-                break
+                self.writer.add_scalar(
+                    'performed_steps', self.buffer.stored_interactions(), it)
+                return ep_len
 
-        self.writer.add_scalar('performed_steps', self.buffer.stored_interactions(), it)
 
 
 class TargetAction:
@@ -75,7 +75,7 @@ class TestAgent:
             while not (d or (ep_len == self.max_ep_len)):
                 with torch.no_grad():
                     s, r, d, _ = self.env.step(
-                        self.aciton(
+                        self.action(
                             s,
                             deterministic=True)[0].reshape(1, self.da).cpu().numpy())
                 ep_ret += r

@@ -8,20 +8,18 @@ def mpo_runner(writer,
                test_agent,
                ac,
                ac_targ,
-               buffer,
-               total_steps=40000,
-               min_steps_per_epoch=200,
-               test_after=4000,
+               min_steps_per_epoch=4000,
                update_steps=1200,
                update_after=300,
+               epochs=20,
                ):
     iteration = 0
-    current_steps = 0
-    while buffer.stored_interactions() < total_steps:
-        # sample trajectories
+    performed_steps = 0
+    for it in range(iteration, epochs):
+        # Find better policy by gradient descent
         performed_steps = 0
         while performed_steps < min_steps_per_epoch:
-            performed_steps += sampler()
+            performed_steps += sampler(it)
 
         for r in tqdm(range(update_steps), desc='updating nets'):
 
@@ -31,15 +29,10 @@ def mpo_runner(writer,
                     target_param.data.copy_(param.data)
 
             # update q values
-            q_update()
+            q_update(it * update_steps + r)
             # update policy
-            pi_update()
+            pi_update(it * update_steps + r)
 
-        if buffer.stored_interactions() - current_steps >= test_after:
-            test_agent(iteration)
-            writer.add_scalar(
-                'performed_steps', buffer.stored_interactions(), iteration)
-
-            iteration += 1
-            current_steps = buffer.stored_interactions()
+        test_agent(it)
         writer.flush()
+        it += 1

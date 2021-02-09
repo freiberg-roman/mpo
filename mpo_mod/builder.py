@@ -2,7 +2,7 @@ from mpo_mod.loss_fn import UpdateQ_TD0, PolicyUpdateNonParametric
 from mpo_mod.helper_fn import SamplerTrajectory, TestAgent, TargetAction
 import gym
 from mpo_mod.mpo_mod import mpo_runner
-from mpo_mod.core_double import MLPActorCritic
+from mpo_mod.core import MLPActorCritic
 from copy import deepcopy
 import itertools
 import torch
@@ -27,11 +27,10 @@ def mpo_non_parametric_td0(env_name,
                            batch_size=768,
                            batch_size_act=20,
                            gamma=0.99,
-                           total_steps=40000,
-                           min_steps_per_epoch=200,
-                           test_after=4000,
+                           min_steps_per_epoch=4000,
                            update_steps=1200,
-                           update_after=100
+                           update_after=300,
+                           epochs=20
                            ):
     env = gym.make(env_name)
     ac = MLPActorCritic(env, local_device).to(device=local_device)
@@ -111,10 +110,8 @@ def mpo_non_parametric_td0(env_name,
                               test_agent,
                               ac,
                               ac_targ,
-                              replay_buffer,
-                              total_steps,
                               min_steps_per_epoch,
-                              test_after,
                               update_steps,
                               update_after,
+                              epochs
                               )

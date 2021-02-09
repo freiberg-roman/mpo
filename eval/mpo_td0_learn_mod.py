@@ -10,15 +10,17 @@ if __name__ == '__main__':
     parser.add_argument('--eps_mean', type=float, default=0.1)
     parser.add_argument('--eps_cov', type=float, default=0.0001)
     parser.add_argument('--gamma', type=float, default=0.99)
+    parser.add_argument('--alpha', type=float, default=10.)
+    parser.add_argument('--sample_episodes', type=int, default=1)
+    parser.add_argument('--episode_length', type=int, default=200)
     parser.add_argument('--batch_action', type=int, default=20)
     parser.add_argument('--batch_state', type=int, default=768)
     parser.add_argument('--name', type=str, default='debug')
     parser.add_argument('--repeat', type=int, default=1)
     parser.add_argument('--update_steps', type=int, default=1200)
     parser.add_argument('--update_after', type=int, default=100)
-    parser.add_argument('--total_steps', type=int, default=40000)
+    parser.add_argument('--epochs', type=int, default=20)
     parser.add_argument('--min_steps_per_epoch', type=int, default=200)
-    parser.add_argument('--test_after', type=int, default=4000)
     parser.add_argument('--lr_pi', type=float, default=5e-4)
     parser.add_argument('--lr_q', type=float, default=5e-4)
     parser.add_argument('--lr_kl', type=float, default=0.01)
@@ -46,6 +48,6 @@ if __name__ == '__main__':
             update_steps=args.update_steps,
             update_after=args.update_after,
             min_steps_per_epoch=args.min_steps_per_epoch,
-            test_after=args.test_after
+            epochs=args.epochs
         )()
 

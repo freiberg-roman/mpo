@@ -92,3 +92,6 @@ class MLPActorCritic(nn.Module):
             mu, cov = self.pi(torch.squeeze(obs))
             a, logp_pi = self.pi.get_act(mu, cov, deterministic=deterministic)
             return a.cpu().numpy(), logp_pi
+
+    def get_q(self, state, act):
+        return torch.min(self.q1.forward(state, act), self.q2.forward(state, act))

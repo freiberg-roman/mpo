@@ -1,7 +1,6 @@
 import itertools
 import torch
-from mpo_mod.core import GaussianMLPActor
-from common.retrace import Retrace
+from mpo_mod.core_double import GaussianMLPActor
 
 
 def gaussian_kl(targ_mean, mean, targ_std, std):
@@ -41,8 +40,9 @@ class UpdateQ_TD0:
         self.batch_size = batch_size
         self.gamma = gamma
         self.entropy = entropy
+        self.run = 0
 
-    def __call__(self, run):
+    def __call__(self):
         self.critic_optimizer.zero_grad()
 
         rows, cols = self.buffer.sample_idxs_batch(batch_size=self.batch_size)
@@ -67,10 +67,11 @@ class UpdateQ_TD0:
         loss_q2 = ((q2 - backup) ** 2).mean()
         loss_q = loss_q1 + loss_q2
 
-        self.writer.add_scalar('q_loss', loss_q.item(), run)
-        self.writer.add_scalar('q', targ_q.detach().mean().item(), run)
-        self.writer.add_scalar('q_min', targ_q.detach().min().item(), run)
-        self.writer.add_scalar('q_max', targ_q.detach().max().item(), run)
+        self.writer.add_scalar('q_loss', loss_q.item(), self.run)
+        self.writer.add_scalar('q', targ_q.detach().mean().item(), self.run)
+        self.writer.add_scalar('q_min', targ_q.detach().min().item(), self.run)
+        self.writer.add_scalar('q_max', targ_q.detach().max().item(), self.run)
+        self.run += 1
 
         loss_q.backward()
         self.critic_optimizer.step()
@@ -114,8 +115,9 @@ class PolicyUpdateNonParametric:
             eps_cov,
             lr_kl
         )
+        self.run = 0
 
-    def __call__(self, run):
+    def __call__(self):
         B = self.B
         M = self.M
         rows, cols = self.buffer.sample_idxs_batch(batch_size=B)
@@ -145,14 +147,14 @@ class PolicyUpdateNonParametric:
                     GaussianMLPActor.get_logp(b_μ, std, sampled_actions, expand=(M, B))
             )
         )
-        self.writer.add_scalar('loss_pi', loss_p.item(), run)
+        self.writer.add_scalar('loss_pi', loss_p.item(), self.run)
 
         c_mean, c_cov = gaussian_kl(
             targ_mean=b_μ, mean=mean,
             targ_std=b_A, std=std)
 
         # Update lagrange multipliers by gradient descent
-        eta_mean, eta_cov = self.update_lagrange(c_mean, c_cov, run)
+        eta_mean, eta_cov = self.update_lagrange(c_mean, c_cov, self.run)
 
         # learn eta together with other policy parameters
         self.optimizer.zero_grad()
@@ -163,9 +165,10 @@ class PolicyUpdateNonParametric:
                 + eta_cov * (self.eps_cov - c_cov)
         ) + loss_eta
 
-        self.writer.add_scalar('combined_loss', loss_l.item() - loss_eta.item(), run)
-        self.writer.add_scalar('eta', self.eta.item(), run)
-        self.writer.add_scalar('eta_loss', loss_eta.item(), run)
+        self.writer.add_scalar('combined_loss', loss_l.item() - loss_eta.item(), self.run)
+        self.writer.add_scalar('eta', self.eta.item(), self.run)
+        self.writer.add_scalar('eta_loss', loss_eta.item(), self.run)
+        self.run += 1
 
         loss_l.backward()
         self.optimizer.step()

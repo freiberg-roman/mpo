@@ -15,7 +15,7 @@ class SamplerTrajectory:
         self.ds = env.observation_space.shape[0]
         self.max_ep_len = max_ep_len
 
-    def __call__(self, it):
+    def __call__(self):
         s, _, ep_len = self.env.reset(), 0, 0
         while True:
             a, logp = self.actor_step(s)
@@ -37,8 +37,6 @@ class SamplerTrajectory:
             # end of trajectory handling
             if ep_len == self.max_ep_len or d:
                 self.buffer.next_traj()
-                self.writer.add_scalar(
-                    'performed_steps', self.buffer.stored_interactions(), it)
                 return ep_len
 
 

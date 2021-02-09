@@ -27,10 +27,11 @@ def mpo_non_parametric_td0(env_name,
                            batch_size=768,
                            batch_size_act=20,
                            gamma=0.99,
-                           min_steps_per_epoch=4000,
+                           total_steps=40000,
+                           min_steps_per_epoch=200,
+                           test_after=4000,
                            update_steps=1200,
-                           update_after=300,
-                           epochs=20
+                           update_after=100
                            ):
     env = gym.make(env_name)
     ac = MLPActorCritic(env, local_device).to(device=local_device)
@@ -50,68 +51,70 @@ def mpo_non_parametric_td0(env_name,
     ds = env.observation_space.shape[0]
 
     min, max = episode_len[env_name]
-    replay_buffer = DynamicTrajectoryBuffer(ds,
-                                            da,
-                                            min,
-                                            max,
-                                            min,
-                                            20000,
-                                            local_device)
+    replay_buffer = DynamicTrajectoryBuffer(state_dim=ds,
+                                            action_dim=da,
+                                            min_rollout=min,
+                                            max_rollout=max,
+                                            traj_rollout=min,
+                                            traj_size=20000,
+                                            device=local_device)
 
     # prepare modules
     q_update = UpdateQ_TD0(
-        writer,
-        critic_optimizer,
-        ac,
-        ac_targ,
-        replay_buffer,
-        batch_size,
-        gamma,
-        0.0
+        writer=writer,
+        critic_optimizer=critic_optimizer,
+        ac=ac,
+        ac_targ=ac_targ,
+        buffer=replay_buffer,
+        batch_size=batch_size,
+        gamma=gamma,
+        entropy=0.0
     )
 
-    pi_update = PolicyUpdateNonParametric(local_device,
-                                          writer,
-                                          ac,
-                                          ac_targ,
-                                          actor_optimizer,
-                                          eta,
-                                          eps_mean,
-                                          eps_cov,
-                                          eps_dual,
-                                          lr_kl,
-                                          replay_buffer,
-                                          batch_size,
-                                          batch_size_act,
-                                          ds,
-                                          da
+    pi_update = PolicyUpdateNonParametric(device=local_device,
+                                          writer=writer,
+                                          ac=ac,
+                                          ac_targ=ac_targ,
+                                          actor_eta_optimizer=actor_optimizer,
+                                          eta=eta,
+                                          eps_mean=eps_mean,
+                                          eps_cov=eps_cov,
+                                          eps_dual=eps_dual,
+                                          lr_kl=lr_kl,
+                                          buffer=replay_buffer,
+                                          batch_size=batch_size,
+                                          batch_size_act=batch_size_act,
+                                          ds=ds,
+                                          da=da
                                           )
     actor_step = TargetAction(
-        local_device,
-        ac_targ,
-        ds
+        device=local_device,
+        ac_targ=ac_targ,
+        ds=ds
     )
 
     sampler = SamplerTrajectory(
-        env,
-        local_device,
-        writer,
-        replay_buffer,
-        actor_step,
-        max
+        env=env,
+        device=local_device,
+        writer=writer,
+        buffer=replay_buffer,
+        actor_step=actor_step,
+        max_ep_len=max
     )
 
     test_agent = TestAgent(env, writer, max, actor_step)
 
-    return lambda: mpo_runner(writer,
-                              q_update,
-                              pi_update,
-                              sampler,
-                              test_agent,
-                              ac,
-                              ac_targ,
-                              min_steps_per_epoch,
-                              update_steps,
-                              update_after,
-                              epochs
+    return lambda: mpo_runner(writer=writer,
+                              q_update=q_update,
+                              pi_update=pi_update,
+                              sampler=sampler,
+                              test_agent=test_agent,
+                              ac=ac,
+                              ac_targ=ac_targ,
+                              buffer=replay_buffer,
+                              total_steps=total_steps,
+                              min_steps_per_epoch=min_steps_per_epoch,
+                              test_after=test_after,
+                              update_steps=update_steps,
+                              update_after=update_after,
                               )

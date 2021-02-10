@@ -47,5 +47,6 @@ if __name__ == '__main__':
             update_steps=args.update_steps,
             update_after=args.update_after,
             min_steps_per_epoch=args.min_steps_per_epoch,
-            test_after=args.test_after
+            test_after=args.test_after,
+            total_steps=args.total_steps
         )()

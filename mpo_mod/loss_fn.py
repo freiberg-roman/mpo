@@ -42,6 +42,7 @@ class UpdateQ_TD0:
         self.gamma = gamma
         self.entropy = entropy
         self.run = 0
+        self.polyak = 0.995
 
     def __call__(self):
         self.critic_optimizer.zero_grad()
@@ -75,6 +76,16 @@ class UpdateQ_TD0:
 
         loss_q.backward()
         self.critic_optimizer.step()
+
+        for p, p_targ in zip(self.ac.q1.parameters(), self.ac_targ.q1.parameters()):
+            p_targ.data.mul_(self.polyak)
+            p_targ.data.add_((1 - self.polyak) * p.data)
+
+        for p, p_targ in zip(self.ac.q2.parameters(), self.ac_targ.q2.parameters()):
+            p_targ.data.mul_(self.polyak)
+            p_targ.data.add_((1 - self.polyak) * p.data)
+
+        self.run += 1
 
 
 class PolicyUpdateNonParametric:
@@ -171,6 +182,7 @@ class PolicyUpdateNonParametric:
 
         loss_l.backward()
         self.optimizer.step()
+        self.run += 1
 
 
 class UpdateLagrangeTrustRegionOptimizer:

@@ -27,7 +27,7 @@ def mpo_runner(writer,
 
             # update target networks
             if r % update_after == 0:
-                for target_param, param in zip(ac_targ.parameters(), ac.parameters()):
+                for target_param, param in zip(ac_targ.pi.parameters(), ac.pi.parameters()):
                     target_param.data.copy_(param.data)
 
             # update q values

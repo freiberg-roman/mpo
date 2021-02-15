@@ -40,6 +40,50 @@ class SamplerTrajectory:
                 return ep_len
 
 
+class Sampler:
+    def __init__(self, env, device, writer, buffer, actor_step, sample_first, sample_min):
+        self.env = env
+        self.writer = writer
+        self.device = device
+        self.buffer = buffer
+        self.actor_step = actor_step
+        self.da = env.action_space.shape[0]
+        self.ds = env.observation_space.shape[0]
+        self.sample_first = sample_first
+        self.sample_min = sample_min
+        self.first_run = True
+
+    def __call__(self):
+
+        performed_steps = 0
+        to_perform_steps = self.sample_min
+        if self.first_run:
+            to_perform_steps = self.sample_first
+            self.first_run = False
+
+        s, _, ep_len = self.env.reset(), 0, 0
+        while performed_steps < to_perform_steps:
+            a, logp = self.actor_step(s)
+            # do step in environment
+            s2, r, d, _ = self.env.step(a.reshape(1, self.da).cpu().numpy())
+            ep_len += 1
+            performed_steps += 1
+
+            self.buffer.store(
+                s.reshape(self.ds),
+                s2.reshape(self.ds),
+                a.cpu().numpy(),
+                r,
+                logp.cpu().numpy(),
+                d)
+
+            # update state
+            s = s2
+
+            # end of trajectory handling
+            if ep_len == self.max_ep_len or d:
+                s = self.env.reset()
+        return performed_steps
 
 class TargetAction:
     def __init__(self, device, ac_targ, ds):

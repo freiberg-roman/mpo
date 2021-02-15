@@ -10,7 +10,7 @@ def mpo_runner(writer,
                ac_targ,
                buffer,
                total_steps=40000,
-               min_steps_per_epoch=200,
+               min_steps_per_iteration=1000,
                test_after=4000,
                update_steps=1200,
                update_after=300,
@@ -20,7 +20,7 @@ def mpo_runner(writer,
     while buffer.stored_interactions() < total_steps:
         # sample trajectories
         performed_steps = 0
-        while performed_steps < min_steps_per_epoch:
+        while performed_steps < min_steps_per_iteration:
             performed_steps += sampler()
 
         for r in tqdm(range(update_steps), desc='updating nets'):

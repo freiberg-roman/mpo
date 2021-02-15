@@ -72,7 +72,18 @@ class DynamicTrajectoryBuffer:
         cols = idxs - (np.append([0], (cum_len_idxs + 1))[rows])
         return rows, cols
 
-    def sample_idxs_batch(self, batch_size=768):
+    def sample_trajectories(self, rows, cols):
+        cols = tuple([cols + i for i in range(self.traj_rollout)])
+        batch = dict(
+            state=self.s_buf[rows, cols],
+            action=self.action_buf[rows, cols],
+            reward=self.rew_buf[rows, cols],
+            pi_logp=self.pi_logp_buf[rows, cols],
+        )
+        return {k: torch.as_tensor(v, dtype=torch.float32,
+                                   device=self.device) for k, v in batch.items()}
+
+    def sample_batch(self, batch_size=768):
         effective_len = self.len_used[0:self.ptr_traj]
         size_all = np.sum(effective_len)
         # random indexes in usable range
@@ -82,9 +93,7 @@ class DynamicTrajectoryBuffer:
         # calculating rows and columns for usable arrays
         rows = np.searchsorted(cum_len_idxs, idxs)
         cols = idxs - (np.append([0], (cum_len_idxs + 1))[rows])
-        return rows, cols
 
-    def sample_batch(self, rows, cols):
         batch = dict(
             state=self.s_buf[rows, cols],
             state_next=self.s_next_buf[rows, cols],
@@ -92,17 +101,6 @@ class DynamicTrajectoryBuffer:
             reward=self.rew_buf[rows, cols],
             pi_logp=self.pi_logp_buf[rows, cols],
             done=self.done_buf[rows, cols],
-        )
-        return {k: torch.as_tensor(v, dtype=torch.float32,
-                                   device=self.device) for k, v in batch.items()}
-
-    def sample_trajectories(self, rows, cols):
-        cols = tuple([cols + i for i in range(self.traj_rollout)])
-        batch = dict(
-            state=self.s_buf[rows, cols],
-            action=self.action_buf[rows, cols],
-            reward=self.rew_buf[rows, cols],
-            pi_logp=self.pi_logp_buf[rows, cols],
         )
         return {k: torch.as_tensor(v, dtype=torch.float32,
                                    device=self.device) for k, v in batch.items()}

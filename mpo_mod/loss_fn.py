@@ -47,15 +47,14 @@ class UpdateQ_TD0:
     def __call__(self):
         self.critic_optimizer.zero_grad()
 
-        rows, cols = self.buffer.sample_idxs_batch(batch_size=self.batch_size)
-        samples = self.buffer.sample_batch(rows, cols)
+        samples = self.buffer.sample_batch(batch_size=self.batch_size)
 
         q1 = self.ac.q1(samples['state'], samples['action'])
         q2 = self.ac.q2(samples['state'], samples['action'])
 
         with torch.no_grad():
-            # mean, std = self.ac.pi.forward(samples['state_next'])
-            mean, std = self.ac_targ.pi.forward(samples['state_next'])
+            mean, std = self.ac.pi.forward(samples['state_next'])
+            # mean, std = self.ac_targ.pi.forward(samples['state_next'])
             act_next = GaussianMLPActor.get_act(mean, std)
             logp = GaussianMLPActor.get_logp(mean, std, act_next)
 
@@ -131,8 +130,7 @@ class PolicyUpdateNonParametric:
     def __call__(self):
         B = self.B
         M = self.M
-        rows, cols = self.buffer.sample_idxs_batch(batch_size=B)
-        samples = self.buffer.sample_batch(rows, cols)
+        samples = self.buffer.sample_batch(batch_size=B)
         state_batch = samples['state']
         with torch.no_grad():
             b_μ, b_A = self.ac_targ.pi.forward(state_batch)  # (B,)

@@ -15,11 +15,11 @@ if __name__ == '__main__':
     parser.add_argument('--batch_state', type=int, default=768)
     parser.add_argument('--name', type=str, default='debug')
     parser.add_argument('--repeat', type=int, default=1)
-    parser.add_argument('--update_steps', type=int, default=3600)
-    parser.add_argument('--update_after', type=int, default=100)
-    parser.add_argument('--total_steps', type=int, default=4000)
-    parser.add_argument('--min_steps_per_epoch', type=int, default=1000)
-    parser.add_argument('--test_after', type=int, default=1000)
+    parser.add_argument('--update_steps', type=int, default=50)
+    parser.add_argument('--update_after', type=int, default=50)
+    parser.add_argument('--total_steps', type=int, default=20000)
+    parser.add_argument('--min_steps_per_epoch', type=int, default=50)
+    parser.add_argument('--test_after', type=int, default=4000)
     parser.add_argument('--lr_pi', type=float, default=5e-4)
     parser.add_argument('--lr_q', type=float, default=5e-4)
     parser.add_argument('--lr_kl', type=float, default=0.01)
@@ -31,7 +31,7 @@ if __name__ == '__main__':
         else:
             writer = SummaryWriter('../runs/' + args.name + "_" + str(i))
 
-        mpo_non_parametric_td0(
+        mpo_non_parametric_td0_sac_update(
             env_name=args.env,
             local_device='cuda:0',
             writer=writer,

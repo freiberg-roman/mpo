@@ -41,7 +41,7 @@ class SamplerTrajectory:
 
 
 class Sampler:
-    def __init__(self, env, device, writer, buffer, actor_step, sample_first, sample_min):
+    def __init__(self, env, device, writer, buffer, actor_step, sample_first, sample_min, max_ep_len):
         self.env = env
         self.writer = writer
         self.device = device
@@ -52,6 +52,7 @@ class Sampler:
         self.sample_first = sample_first
         self.sample_min = sample_min
         self.first_run = True
+        self.max_ep_len = max_ep_len
 
     def __call__(self):
 
@@ -81,7 +82,7 @@ class Sampler:
             s = s2
 
             # end of trajectory handling
-            if ep_len == self.max_ep_len or d:
+            if d or ep_len == self.max_ep_len:
                 s = self.env.reset()
         return performed_steps
 

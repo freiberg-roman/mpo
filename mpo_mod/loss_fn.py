@@ -177,6 +177,8 @@ class PolicyUpdateNonParametric:
         self.writer.add_scalar('combined_loss', loss_l.item() - loss_eta.item(), self.run)
         self.writer.add_scalar('eta', self.eta.item(), self.run)
         self.writer.add_scalar('eta_loss', loss_eta.item(), self.run)
+        self.writer.add_scalar('c_mean', c_mean.item(), self.run)
+        self.writer.add_scalar('c_cov', c_cov.item(), self.run)
 
         loss_l.backward()
         self.optimizer.step()
@@ -206,8 +208,8 @@ class UpdateLagrangeTrustRegionOptimizer:
         self.eta_cov.clamp(min=0.0)
         loss_eta_mean = self.eta_mean * (self.eps_mean - c_mean.item())
         loss_eta_cov = self.eta_cov * (self.eps_cov - c_cov.item())
-        loss_lagrauge = loss_eta_mean + loss_eta_cov
-        loss_lagrauge.backward()
+        loss_lagrange = loss_eta_mean + loss_eta_cov
+        loss_lagrange.backward()
 
         self.optimizer.step()
 
@@ -219,6 +221,6 @@ class UpdateLagrangeTrustRegionOptimizer:
         eta_cov_ret = self.eta_cov.item()
         if eta_cov_ret < 0.0:
             eta_cov_ret = 0.0
-        self.writer.add_scalar('eta_cov', self.eta_cov, run)
+        self.writer.add_scalar('eta_cov', eta_cov_ret, run)
 
         return eta_mean_ret, eta_cov_ret

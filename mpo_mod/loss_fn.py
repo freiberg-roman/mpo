@@ -23,6 +23,64 @@ def dual(eta, targ_q, eps_dual):
            + eta * torch.mean(torch.log(torch.mean(torch.exp((targ_q - max_q) / eta), dim=0)))
 
 
+class UpdateQRetrace:
+    def __init__(self,
+                 writer,
+                 critic_optimizer,
+                 ac,
+                 ac_targ,
+                 buffer,
+                 batch_size,
+                 gamma,
+                 device):
+        self.writer = writer
+        self.critic_optimizer = critic_optimizer
+        self.ac = ac
+        self.ac_targ = ac_targ
+        self.buffer = buffer
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.device = device
+        self.run = 0
+        self.polyak = 0.995
+
+    def __call__(self, run):
+        self.critic_optimizer.zero_grad()
+
+        rows, cols = self.buffer.sample_idxs(batch_size=self.batch_size)
+        samples = self.buffer.sample_batch(rows, cols)
+        batch_q = self.ac.q.forward(samples['state'], samples['action'])
+        batch_q = torch.transpose(batch_q, 0, 1)
+
+        targ_q = self.ac_targ.q.forward(samples['state'], samples['action'])
+        targ_q = torch.transpose(targ_q, 0, 1)
+
+        targ_mean, targ_chol = self.ac_targ.pi.forward(samples['state'])
+        targ_act = GaussianMLPActor.get_act(targ_mean, targ_chol)
+
+        exp_targ_q = self.ac_targ.q.forward(samples['state'], targ_act)
+        exp_targ_q = torch.transpose(exp_targ_q, 0, 1)
+
+        targ_act_logp = GaussianMLPActor.get_logp(targ_mean, targ_chol, samples['action']).unsqueeze(-1)
+        targ_act_logp = torch.transpose(targ_act_logp, 0, 1)
+
+        retrace = Retrace(device=self.device)
+        loss_q = retrace(Q=batch_q,
+                         expected_target_Q=exp_targ_q,
+                         target_Q=targ_q,
+                         rewards=torch.transpose(samples['reward'], 0, 1),
+                         target_policy_probs=targ_act_logp,
+                         behaviour_policy_probs=torch.transpose(samples['pi_logp'], 0, 1),
+                         gamma=self.gamma
+                         )
+        self.writer.add_scalar('q_loss', loss_q.item(), run)
+        self.writer.add_scalar('q', targ_q.detach().mean().item(), run)
+        self.writer.add_scalar('q_min', targ_q.detach().min().item(), run)
+        self.writer.add_scalar('q_max', targ_q.detach().max().item(), run)
+
+        loss_q.backward()
+        self.critic_optimizer.step()
+
 class UpdateQ_TD0:
     def __init__(self,
                  writer,
@@ -136,15 +194,10 @@ class PolicyUpdateNonParametric:
             b_μ, b_A = self.ac_targ.pi.forward(state_batch)  # (B,)
             sampled_actions = GaussianMLPActor.get_act(b_μ, b_A, amount=(M,))
             expanded_states = state_batch[None, ...].expand(M, -1, -1)  # (M, B, ds)
-            targ_q1 = self.ac_targ.q1.forward(
+            targ_q = self.ac_targ.q_forward(
                 expanded_states.reshape(-1, self.ds),  # (M * B, ds)
                 sampled_actions.reshape(-1, self.da)  # (M * B, da)
-            ).reshape(M, B)  # (M, B)
-            targ_q2 = self.ac_targ.q2.forward(
-                expanded_states.reshape(-1, self.ds),  # (M * B, ds)
-                sampled_actions.reshape(-1, self.da)  # (M * B, da)
-            ).reshape(M, B)  # (M, B)
-            targ_q = torch.min(targ_q1, targ_q2)
+            ).reshape(M, B)
 
         # M-step
         qij = torch.softmax(targ_q / self.eta.item(), dim=0)  # (M, B) or (da, B)

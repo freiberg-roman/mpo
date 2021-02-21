@@ -84,8 +84,7 @@ class MLPActorCritic(nn.Module):
         super().__init__()
 
         self.pi = GaussianMLPActor(env, device, hidden_sizes_pi, activation)
-        self.q1 = MLPQFunction(env, hidden_sizes_q, activation)
-        self.q2 = MLPQFunction(env, hidden_sizes_q, activation)
+        self.q = MLPQFunction(env, hidden_sizes_q, activation)
 
     def act(self, obs, deterministic=False):
         with torch.no_grad():
@@ -94,5 +93,4 @@ class MLPActorCritic(nn.Module):
             return a.cpu().numpy(), logp_pi
 
     def q_forward(self, state, act):
-        return torch.min(self.q1.forward(state, act),
-                         self.q2.forward(state, act))
+        return self.q.forward(state, act)

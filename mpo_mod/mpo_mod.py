@@ -25,7 +25,6 @@ def mpo_runner(writer,
         performed_steps = 0
         while performed_steps < min_steps_per_iteration:
             performed_steps += sampler()
-            print(performed_steps)
 
         for r in range(update_steps):
 

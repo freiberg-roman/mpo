@@ -44,11 +44,11 @@ class UpdateQRetrace:
         self.run = 0
         self.polyak = 0.995
 
-    def __call__(self, run):
+    def __call__(self):
         self.critic_optimizer.zero_grad()
 
         rows, cols = self.buffer.sample_idxs(batch_size=self.batch_size)
-        samples = self.buffer.sample_batch(rows, cols)
+        samples = self.buffer.sample_trajectories(rows, cols)
         batch_q = self.ac.q.forward(samples['state'], samples['action'])
         batch_q = torch.transpose(batch_q, 0, 1)
 
@@ -73,13 +73,19 @@ class UpdateQRetrace:
                          behaviour_policy_probs=torch.transpose(samples['pi_logp'], 0, 1),
                          gamma=self.gamma
                          )
-        self.writer.add_scalar('q_loss', loss_q.item(), run)
-        self.writer.add_scalar('q', targ_q.detach().mean().item(), run)
-        self.writer.add_scalar('q_min', targ_q.detach().min().item(), run)
-        self.writer.add_scalar('q_max', targ_q.detach().max().item(), run)
+        self.writer.add_scalar('q_loss', loss_q.item(), self.run)
+        self.writer.add_scalar('q', targ_q.detach().mean().item(), self.run)
+        self.writer.add_scalar('q_min', targ_q.detach().min().item(), self.run)
+        self.writer.add_scalar('q_max', targ_q.detach().max().item(), self.run)
 
         loss_q.backward()
         self.critic_optimizer.step()
+
+        for p, p_targ in zip(self.ac.q.parameters(), self.ac_targ.q.parameters()):
+            p_targ.data.mul_(self.polyak)
+            p_targ.data.add_((1 - self.polyak) * p.data)
+
+        self.run += 1
 
 class UpdateQ_TD0:
     def __init__(self,

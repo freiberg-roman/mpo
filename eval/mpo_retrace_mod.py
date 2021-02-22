@@ -1,5 +1,5 @@
 import argparse
-from mpo_mod.builder import mpo_non_parametric_td0_sac_update
+from mpo_mod.builder import mpo_non_parametric_retrace
 from torch.utils.tensorboard import SummaryWriter
 
 if __name__ == '__main__':
@@ -12,8 +12,9 @@ if __name__ == '__main__':
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--episode_length', type=int, default=200)
     parser.add_argument('--batch_action', type=int, default=20)
-    parser.add_argument('--batch_state', type=int, default=768)
-    parser.add_argument('--name', type=str, default='debug-2')
+    parser.add_argument('--batch_state', type=int, default=64)
+    parser.add_argument('--rollout_len', type=int, default=10)
+    parser.add_argument('--name', type=str, default='debug')
     parser.add_argument('--repeat', type=int, default=1)
     parser.add_argument('--update_steps', type=int, default=1200)
     parser.add_argument('--update_after', type=int, default=300)
@@ -31,7 +32,7 @@ if __name__ == '__main__':
         else:
             writer = SummaryWriter('../runs/' + args.name + "_" + str(i))
 
-        mpo_non_parametric_td0_sac_update(
+        mpo_non_parametric_retrace(
             env_name=args.env,
             local_device='cuda:0',
             writer=writer,
@@ -48,5 +49,6 @@ if __name__ == '__main__':
             update_after=args.update_after,
             min_steps_per_epoch=args.min_steps_per_epoch,
             test_after=args.test_after,
-            total_steps=args.total_steps
+            total_steps=args.total_steps,
+            rollout_len=args.rollout_len
         )()

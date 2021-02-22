@@ -77,7 +77,7 @@ class MLPQFunction(nn.Module):
         return self.q(torch.cat([state, act], dim=-1))
 
 
-class MLPActorCritic(nn.Module):
+class MLPActorCriticSingle(nn.Module):
 
     def __init__(self, env, device, hidden_sizes_pi=(256, 256),
                  hidden_sizes_q=(256, 256), activation=nn.ReLU):

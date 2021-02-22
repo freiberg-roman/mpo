@@ -100,7 +100,8 @@ def mpo_non_parametric_td0_sac_update(env_name,
         actor_step=actor_step,
         sample_first=1000,
         sample_min=min_steps_per_epoch,
-        max_ep_len=max
+        max_ep_len=max,
+        ac_targ=ac_targ
     )
 
     test_agent = TestAgent(env_test, writer, max, actor_step)
@@ -205,6 +206,7 @@ def mpo_non_parametric_retrace(env_name,
         sample_first=1000,
         sample_min=min_steps_per_epoch,
         max_ep_len=max,
+        ac_targ=ac_targ
     )
 
     test_agent = TestAgent(env_test, writer, max, actor_step)

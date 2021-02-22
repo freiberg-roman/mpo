@@ -5,7 +5,7 @@ from mpo_mod.core import GaussianMLPActor
 
 
 class Sampler:
-    def __init__(self, env, device, writer, buffer, actor_step, sample_first, sample_min, max_ep_len):
+    def __init__(self, env, device, writer, buffer, actor_step, sample_first, sample_min, max_ep_len, ac_targ):
         self.env = env
         self.writer = writer
         self.device = device
@@ -17,6 +17,7 @@ class Sampler:
         self.sample_min = sample_min
         self.first_run = True
         self.max_ep_len = max_ep_len
+        self.ac_targ = ac_targ
 
         # internal variables
         self.s = self.env.reset()
@@ -31,7 +32,16 @@ class Sampler:
             self.first_run = False
 
         while performed_steps < to_perform_steps:
-            a, logp = self.actor_step(self.s)
+            if self.buffer.stored_interactions() < 10000:
+                a = torch.as_tensor(self.env.action_space.sample(),
+                                    dtype=torch.float32, device=self.device)
+                mean, chol = self.ac_targ.pi.forward(
+                    torch.as_tensor(self.s,
+                                    dtype=torch.float32,
+                                    device=self.device).reshape(1, self.ds))
+                logp = GaussianMLPActor.get_logp(mean, chol, a)
+            else:
+                a, logp = self.actor_step(self.s)
             # do step in environment
             s2, r, d, _ = self.env.step(a.reshape(1, self.da).cpu().numpy())
             self.ep_len += 1

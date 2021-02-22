@@ -4,42 +4,6 @@ from tqdm import tqdm
 from mpo_mod.core import GaussianMLPActor
 
 
-class SamplerTrajectory:
-    def __init__(self, env, device, writer, buffer, actor_step, max_ep_len):
-        self.env = env
-        self.writer = writer
-        self.device = device
-        self.buffer = buffer
-        self.actor_step = actor_step
-        self.da = env.action_space.shape[0]
-        self.ds = env.observation_space.shape[0]
-        self.max_ep_len = max_ep_len
-
-    def __call__(self):
-        s, _, ep_len = self.env.reset(), 0, 0
-        while True:
-            a, logp = self.actor_step(s)
-            # do step in environment
-            s2, r, d, _ = self.env.step(a.reshape(1, self.da).cpu().numpy())
-            ep_len += 1
-
-            self.buffer.store(
-                s.reshape(self.ds),
-                s2.reshape(self.ds),
-                a.cpu().numpy(),
-                r,
-                logp.cpu().numpy(),
-                d)
-
-            # update state
-            s = s2
-
-            # end of trajectory handling
-            if ep_len == self.max_ep_len or d:
-                self.buffer.next_traj()
-                return ep_len
-
-
 class Sampler:
     def __init__(self, env, device, writer, buffer, actor_step, sample_first, sample_min, max_ep_len):
         self.env = env
@@ -54,6 +18,10 @@ class Sampler:
         self.first_run = True
         self.max_ep_len = max_ep_len
 
+        # internal variables
+        self.s = self.env.reset()
+        self.ep_len = 0
+
     def __call__(self):
 
         performed_steps = 0
@@ -62,16 +30,15 @@ class Sampler:
             to_perform_steps = self.sample_first
             self.first_run = False
 
-        s, _, ep_len = self.env.reset(), 0, 0
         while performed_steps < to_perform_steps:
-            a, logp = self.actor_step(s)
+            a, logp = self.actor_step(self.s)
             # do step in environment
             s2, r, d, _ = self.env.step(a.reshape(1, self.da).cpu().numpy())
-            ep_len += 1
+            self.ep_len += 1
             performed_steps += 1
 
             self.buffer.store(
-                s.reshape(self.ds),
+                self.s.reshape(self.ds),
                 s2.reshape(self.ds),
                 a.cpu().numpy(),
                 r,
@@ -79,11 +46,13 @@ class Sampler:
                 d)
 
             # update state
-            s = s2
+            self.s = s2
 
             # end of trajectory handling
-            if d or ep_len == self.max_ep_len:
-                s = self.env.reset()
+            if d or self.ep_len == self.max_ep_len:
+                self.s = self.env.reset()
+                self.ep_len = 0
+                self.buffer.next_traj()
         return performed_steps
 
 class TargetAction:

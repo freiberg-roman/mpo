@@ -40,3 +40,6 @@ class SimpleBuffer:
 
     def stored_interactions(self):
         return self.total_steps
+
+    def next_traj(self):
+        pass

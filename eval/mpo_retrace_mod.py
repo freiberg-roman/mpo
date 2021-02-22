@@ -5,12 +5,12 @@ from torch.utils.tensorboard import SummaryWriter
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--env', type=str, default='Pendulum-v0')
+    # parser.add_argument('--env', type=str, default='Pendulum-v0')
+    parser.add_argument('--env', type=str, default='HalfCheetah-v2')
     parser.add_argument('--eps_dual', type=float, default=0.1)
     parser.add_argument('--eps_mean', type=float, default=0.0005)
     parser.add_argument('--eps_cov', type=float, default=0.00001)
     parser.add_argument('--gamma', type=float, default=0.99)
-    parser.add_argument('--episode_length', type=int, default=200)
     parser.add_argument('--batch_action', type=int, default=20)
     parser.add_argument('--batch_state', type=int, default=64)
     parser.add_argument('--rollout_len', type=int, default=10)

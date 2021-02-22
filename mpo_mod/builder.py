@@ -1,5 +1,5 @@
 from mpo_mod.loss_fn import UpdateQ_TD0, PolicyUpdateNonParametric, UpdateQRetrace
-from mpo_mod.helper_fn import SamplerTrajectory, Sampler, TestAgent, TargetAction
+from mpo_mod.helper_fn import Sampler, TestAgent, TargetAction
 import gym
 from mpo_mod.mpo_mod import mpo_runner
 from mpo_mod.core import MLPActorCritic
@@ -36,6 +36,7 @@ def mpo_non_parametric_td0_sac_update(env_name,
                                       update_after=50,
                                       ):
     env = gym.make(env_name)
+    env_test = gym.make(env_name)
     ac = MLPActorCritic(env, local_device).to(device=local_device)
     ac_targ = deepcopy(ac).to(device=local_device)
 
@@ -98,11 +99,11 @@ def mpo_non_parametric_td0_sac_update(env_name,
         buffer=replay_buffer,
         actor_step=actor_step,
         sample_first=1000,
-        sample_min=50,
+        sample_min=min_steps_per_epoch,
         max_ep_len=max
     )
 
-    test_agent = TestAgent(env, writer, max, actor_step)
+    test_agent = TestAgent(env_test, writer, max, actor_step)
 
     return lambda: mpo_runner(writer=writer,
                               q_update=q_update,
@@ -140,6 +141,7 @@ def mpo_non_parametric_retrace(env_name,
                                rollout_len=5,
                                ):
     env = gym.make(env_name)
+    env_test = gym.make(env_name)
     ac = MLPActorCriticSingle(env, local_device).to(device=local_device)
     ac_targ = deepcopy(ac).to(device=local_device)
 
@@ -194,16 +196,18 @@ def mpo_non_parametric_retrace(env_name,
         ds=ds
     )
 
-    sampler = SamplerTrajectory(
+    sampler = Sampler(
         env=env,
         device=local_device,
         writer=writer,
         buffer=replay_buffer,
         actor_step=actor_step,
-        max_ep_len=max
+        sample_first=1000,
+        sample_min=min_steps_per_epoch,
+        max_ep_len=max,
     )
 
-    test_agent = TestAgent(env, writer, max, actor_step)
+    test_agent = TestAgent(env_test, writer, max, actor_step)
 
     return lambda: mpo_runner(writer=writer,
                               q_update=q_update,

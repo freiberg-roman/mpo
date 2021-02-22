@@ -19,7 +19,7 @@ if __name__ == '__main__':
     parser.add_argument('--update_after', type=int, default=300)
     parser.add_argument('--total_steps', type=int, default=12000)
     parser.add_argument('--min_steps_per_epoch', type=int, default=200)
-    parser.add_argument('--test_after', type=int, default=4000)
+    parser.add_argument('--test_after', type=int, default=2000)
     parser.add_argument('--lr_pi', type=float, default=5e-4)
     parser.add_argument('--lr_q', type=float, default=5e-4)
     parser.add_argument('--lr_kl', type=float, default=0.01)

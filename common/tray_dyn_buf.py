@@ -49,6 +49,7 @@ class DynamicTrajectoryBuffer:
 
         self.ptr_step += 1
         self.interactions += 1
+        self.len_used[self.ptr_traj] = self.ptr_step
 
     def next_traj(self):
         # will commit the current trajectory
@@ -61,7 +62,10 @@ class DynamicTrajectoryBuffer:
 
     def sample_idxs(self, batch_size=768):
         # usable length for given rollout
-        effective_len = self.len_used[0:self.size_traj] - (self.traj_rollout - 1)
+        if self.ptr_step > 0:
+            effective_len = self.len_used[0:self.size_traj + 1] - (self.traj_rollout - 1)
+        else:
+            effective_len = self.len_used[0:self.size_traj] - (self.traj_rollout - 1)
         size_all = np.sum(effective_len)
         # random indexes in usable range
         idxs = np.random.randint(0, size_all, size=batch_size)

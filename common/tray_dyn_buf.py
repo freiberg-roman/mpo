@@ -63,7 +63,7 @@ class DynamicTrajectoryBuffer:
     def sample_idxs(self, batch_size=768):
         # usable length for given rollout
         if self.ptr_step > 0:
-            effective_len = self.len_used[0:self.size_traj + 1] - (self.traj_rollout - 1)
+            effective_len = self.len_used[0:min(self.size_traj + 1, self.max_traj)] - (self.traj_rollout - 1)
         else:
             effective_len = self.len_used[0:self.size_traj] - (self.traj_rollout - 1)
         size_all = np.sum(effective_len)

@@ -32,16 +32,7 @@ class Sampler:
             self.first_run = False
 
         while performed_steps < to_perform_steps:
-            if self.buffer.stored_interactions() < 10000:
-                a = torch.as_tensor(self.env.action_space.sample(),
-                                    dtype=torch.float32, device=self.device)
-                mean, chol = self.ac_targ.pi.forward(
-                    torch.as_tensor(self.s,
-                                    dtype=torch.float32,
-                                    device=self.device).reshape(1, self.ds))
-                logp = GaussianMLPActor.get_logp(mean, chol, a)
-            else:
-                a, logp = self.actor_step(self.s)
+            a, logp = self.actor_step(self.s)
             # do step in environment
             s2, r, d, _ = self.env.step(a.reshape(1, self.da).cpu().numpy())
             self.ep_len += 1

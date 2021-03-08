@@ -1,4 +1,3 @@
-from tqdm import tqdm
 import time
 
 
@@ -16,10 +15,11 @@ def mpo_runner(writer,
                update_steps=1200,
                update_after=300,
                ):
-    iteration = 0
+    it = 0
     current_steps = 0
     start_time = time.time()
-    totat_updates = 0
+    total_updates = 0
+    inner_it = 0
     while buffer.stored_interactions() < total_steps:
         # sample trajectories
         performed_steps = 0
@@ -29,7 +29,7 @@ def mpo_runner(writer,
         for r in range(update_steps):
 
             # update target networks
-            if r % update_after == 0:
+            if inner_it % update_after == 0:
                 for target_param, param in zip(ac_targ.pi.parameters(), ac.pi.parameters()):
                     target_param.data.copy_(param.data)
 
@@ -37,19 +37,20 @@ def mpo_runner(writer,
             q_update()
             # update policy
             pi_update()
-            totat_updates += 1
+            total_updates += 1
+            inner_it += 1
 
         if buffer.stored_interactions() - current_steps >= test_after:
             print("=" * 80)
-            test_agent(iteration)
+            test_agent(it)
             writer.add_scalar(
-                'performed_steps', buffer.stored_interactions(), iteration)
+                'performed_steps', buffer.stored_interactions(), it)
 
-            iteration += 1
+            it += 1
             current_steps = buffer.stored_interactions()
             print('time for update:', time.time() - start_time)
-            print('total updates', totat_updates)
+            print('total updates', total_updates)
             print('total steps', buffer.stored_interactions())
             start_time = time.time()
-            totat_updates = 0
+            total_updates = 0
         writer.flush()

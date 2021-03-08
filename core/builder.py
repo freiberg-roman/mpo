@@ -1,4 +1,5 @@
-from core.loss_fn import UpdateQ_TD0, PolicyUpdateNonParametric, UpdateQRetrace
+from core.q_loss_fn import UpdateQ_TD, UpdateQRetrace
+from core.loss_fn import PolicyUpdateNonParametric
 from core.helper_fn import Sampler, TestAgent, TargetAction
 import gym
 from core.main_loop import runner
@@ -59,7 +60,7 @@ def mpo_non_parametric_td0(env_name,
                                  device=local_device)
 
     # prepare modules
-    q_update = UpdateQ_TD0(
+    q_update = UpdateQ_TD(
         writer=writer,
         critic_optimizer=critic_optimizer,
         ac=ac,

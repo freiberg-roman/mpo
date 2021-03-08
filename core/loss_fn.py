@@ -1,6 +1,6 @@
 import itertools
 import torch
-from mpo_mod.core import GaussianMLPActor
+from core.nets.nets_mpo_double_q import GaussianMLPActor
 from common.retrace import Retrace
 
 

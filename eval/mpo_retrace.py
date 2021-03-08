@@ -1,5 +1,5 @@
 import argparse
-from mpo_mod.builder import mpo_non_parametric_retrace
+from core.builder import mpo_non_parametric_retrace
 from torch.utils.tensorboard import SummaryWriter
 
 if __name__ == '__main__':

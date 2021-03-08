@@ -1,20 +1,20 @@
 import time
 
 
-def mpo_runner(writer,
-               q_update,
-               pi_update,
-               sampler,
-               test_agent,
-               ac,
-               ac_targ,
-               buffer,
-               total_steps=40000,
-               min_steps_per_iteration=1000,
-               test_after=4000,
-               update_steps=1200,
-               update_after=300,
-               ):
+def runner(writer,
+           q_update,
+           pi_update,
+           sampler,
+           test_agent,
+           ac,
+           ac_targ,
+           buffer,
+           total_steps=40000,
+           min_steps_per_iteration=1000,
+           test_after=4000,
+           update_steps=1200,
+           update_after=300,
+           ):
     it = 0
     current_steps = 0
     start_time = time.time()

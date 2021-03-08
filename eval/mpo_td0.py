@@ -1,5 +1,5 @@
 import argparse
-from mpo_mod.builder import mpo_non_parametric_td0_sac_update
+from core.builder import mpo_non_parametric_td0
 from torch.utils.tensorboard import SummaryWriter
 
 if __name__ == '__main__':
@@ -15,10 +15,10 @@ if __name__ == '__main__':
     parser.add_argument('--batch_state', type=int, default=768)
     parser.add_argument('--name', type=str, default='debug-2')
     parser.add_argument('--repeat', type=int, default=1)
-    parser.add_argument('--update_steps', type=int, default=500)
-    parser.add_argument('--update_after', type=int, default=250)
+    parser.add_argument('--update_steps', type=int, default=50)
+    parser.add_argument('--update_after', type=int, default=50)
     parser.add_argument('--total_steps', type=int, default=12000)
-    parser.add_argument('--min_steps_per_epoch', type=int, default=200)
+    parser.add_argument('--min_steps_per_epoch', type=int, default=50)
     parser.add_argument('--test_after', type=int, default=4000)
     parser.add_argument('--lr_pi', type=float, default=5e-4)
     parser.add_argument('--lr_q', type=float, default=5e-4)
@@ -31,7 +31,7 @@ if __name__ == '__main__':
         else:
             writer = SummaryWriter('../runs/' + args.name + "_" + str(i))
 
-        mpo_non_parametric_td0_sac_update(
+        mpo_non_parametric_td0(
             env_name=args.env,
             local_device='cuda:0',
             writer=writer,

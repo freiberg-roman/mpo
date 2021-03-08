@@ -1,9 +1,9 @@
-from mpo_mod.loss_fn import UpdateQ_TD0, PolicyUpdateNonParametric, UpdateQRetrace
-from mpo_mod.helper_fn import Sampler, TestAgent, TargetAction
+from core.loss_fn import UpdateQ_TD0, PolicyUpdateNonParametric, UpdateQRetrace
+from core.helper_fn import Sampler, TestAgent, TargetAction
 import gym
-from mpo_mod.mpo_mod import mpo_runner
-from mpo_mod.core import MLPActorCritic
-from mpo_mod.core_single import MLPActorCriticSingle
+from core.main_loop import runner
+from core.nets.nets_mpo_double_q import MLPActorCritic
+from core.nets.nets_mpo_single_q import MLPActorCriticSingle
 from copy import deepcopy
 import itertools
 import torch
@@ -17,24 +17,24 @@ episode_len = {
 }
 
 
-def mpo_non_parametric_td0_sac_update(env_name,
-                                      local_device,
-                                      writer,
-                                      lr_pi=5e-4,
-                                      lr_q=5e-4,
-                                      lr_kl=0.01,
-                                      eps_dual=0.1,
-                                      eps_mean=0.1,
-                                      eps_cov=0.0001,
-                                      batch_size=768,
-                                      batch_size_act=20,
-                                      gamma=0.99,
-                                      total_steps=300000,
-                                      min_steps_per_epoch=50,
-                                      test_after=4000,
-                                      update_steps=50,
-                                      update_after=50,
-                                      ):
+def mpo_non_parametric_td0(env_name,
+                           local_device,
+                           writer,
+                           lr_pi=5e-4,
+                           lr_q=5e-4,
+                           lr_kl=0.01,
+                           eps_dual=0.1,
+                           eps_mean=0.1,
+                           eps_cov=0.0001,
+                           batch_size=768,
+                           batch_size_act=20,
+                           gamma=0.99,
+                           total_steps=300000,
+                           min_steps_per_epoch=50,
+                           test_after=4000,
+                           update_steps=50,
+                           update_after=50,
+                           ):
     env = gym.make(env_name)
     env_test = gym.make(env_name)
     ac = MLPActorCritic(env, local_device).to(device=local_device)
@@ -106,20 +106,20 @@ def mpo_non_parametric_td0_sac_update(env_name,
 
     test_agent = TestAgent(env_test, writer, max, actor_step)
 
-    return lambda: mpo_runner(writer=writer,
-                              q_update=q_update,
-                              pi_update=pi_update,
-                              sampler=sampler,
-                              test_agent=test_agent,
-                              ac=ac,
-                              ac_targ=ac_targ,
-                              buffer=replay_buffer,
-                              total_steps=total_steps,
-                              min_steps_per_iteration=min_steps_per_epoch,
-                              test_after=test_after,
-                              update_steps=update_steps,
-                              update_after=update_after,
-                              )
+    return lambda: runner(writer=writer,
+                          q_update=q_update,
+                          pi_update=pi_update,
+                          sampler=sampler,
+                          test_agent=test_agent,
+                          ac=ac,
+                          ac_targ=ac_targ,
+                          buffer=replay_buffer,
+                          total_steps=total_steps,
+                          min_steps_per_iteration=min_steps_per_epoch,
+                          test_after=test_after,
+                          update_steps=update_steps,
+                          update_after=update_after,
+                          )
 
 
 def mpo_non_parametric_retrace(env_name,
@@ -211,17 +211,29 @@ def mpo_non_parametric_retrace(env_name,
 
     test_agent = TestAgent(env_test, writer, max, actor_step)
 
-    return lambda: mpo_runner(writer=writer,
-                              q_update=q_update,
-                              pi_update=pi_update,
-                              sampler=sampler,
-                              test_agent=test_agent,
-                              ac=ac,
-                              ac_targ=ac_targ,
-                              buffer=replay_buffer,
-                              total_steps=total_steps,
-                              min_steps_per_iteration=min_steps_per_epoch,
-                              test_after=test_after,
-                              update_steps=update_steps,
-                              update_after=update_after,
-                              )
+    return lambda: runner(writer=writer,
+                          q_update=q_update,
+                          pi_update=pi_update,
+                          sampler=sampler,
+                          test_agent=test_agent,
+                          ac=ac,
+                          ac_targ=ac_targ,
+                          buffer=replay_buffer,
+                          total_steps=total_steps,
+                          min_steps_per_iteration=min_steps_per_epoch,
+                          test_after=test_after,
+                          update_steps=update_steps,
+                          update_after=update_after,
+                          )
+
+
+def mpo_parametric_td0():
+    pass
+
+
+def mpo_parametric_retrace():
+    pass
+
+
+def sac():
+    pass

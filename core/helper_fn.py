@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from tqdm import tqdm
-from mpo_mod.core import GaussianMLPActor
+from core.nets.nets_mpo_double_q import GaussianMLPActor
 
 
 class Sampler:

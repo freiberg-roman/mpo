@@ -53,8 +53,7 @@ class DynamicTrajectoryBuffer:
 
     def next_traj(self):
         # will commit the current trajectory
-        # only then batch samples from this trajectory are possible
-        assert self.ptr_step >= self.min_rollout
+        assert self.ptr_step >= self.min_rollout  # is defined by environment
         self.len_used[self.ptr_traj] = self.ptr_step  # length of this trajectory
         self.ptr_traj = (self.ptr_traj + 1) % self.max_traj
         self.ptr_step = 0

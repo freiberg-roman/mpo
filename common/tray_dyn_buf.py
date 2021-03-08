@@ -11,18 +11,12 @@ class DynamicTrajectoryBuffer:
                  traj_rollout,
                  traj_size,
                  device):
-        self.s_buf = np.zeros((traj_size, max_rollout, state_dim),
-                              dtype=np.float32)
-        self.s_next_buf = np.zeros((traj_size, max_rollout, state_dim),
-                                   dtype=np.float32)
-        self.action_buf = np.zeros((traj_size, max_rollout, action_dim),
-                                   dtype=np.float32)
-        self.rew_buf = np.zeros((traj_size, max_rollout, 1),
-                                dtype=np.float32)
-        self.pi_logp_buf = np.zeros((traj_size, max_rollout, 1),
-                                    dtype=np.float32)
-        self.done_buf = np.zeros((traj_size, max_rollout, 1),
-                                 dtype=np.float32)
+        self.s_buf = np.zeros((traj_size, max_rollout, state_dim), dtype=np.float32)
+        self.s_next_buf = np.zeros((traj_size, max_rollout, state_dim), dtype=np.float32)
+        self.action_buf = np.zeros((traj_size, max_rollout, action_dim), dtype=np.float32)
+        self.rew_buf = np.zeros((traj_size, max_rollout, 1), dtype=np.float32)
+        self.pi_logp_buf = np.zeros((traj_size, max_rollout, 1), dtype=np.float32)
+        self.done_buf = np.zeros((traj_size, max_rollout, 1), dtype=np.float32)
 
         self.len_used = np.zeros(traj_size, dtype=np.int32)
 
@@ -59,41 +53,37 @@ class DynamicTrajectoryBuffer:
         self.ptr_step = 0
         self.size_traj = min(self.size_traj + 1, self.max_traj)
 
-    def sample_idxs(self, batch_size=768):
-        # usable length for given rollout
+    def sample_trajectories(self, batch_size=128):
         if self.ptr_step > 0:
+            # to include current yet unfinished trajectory
             effective_len = self.len_used[0:min(self.size_traj + 1, self.max_traj)] - (self.traj_rollout - 1)
         else:
             effective_len = self.len_used[0:self.size_traj] - (self.traj_rollout - 1)
         size_all = np.sum(effective_len)
+
         # random indexes in usable range
         idxs = np.random.randint(0, size_all, size=batch_size)
-        # adjusted cumulative length for indexs
         cum_len_idxs = np.cumsum(effective_len) - 1
-        # calculating rows and columns for usable arrays
+
         rows = np.searchsorted(cum_len_idxs, idxs)
         cols = idxs - (np.append([0], (cum_len_idxs + 1))[rows])
-        return rows, cols
-
-    def sample_trajectories(self, rows, cols):
         cols = tuple([cols + i for i in range(self.traj_rollout)])
+
         batch = dict(
             state=self.s_buf[rows, cols],
             action=self.action_buf[rows, cols],
             reward=self.rew_buf[rows, cols],
             pi_logp=self.pi_logp_buf[rows, cols],
         )
-        return {k: torch.as_tensor(v, dtype=torch.float32,
-                                   device=self.device) for k, v in batch.items()}
+        return {k: torch.as_tensor(v, dtype=torch.float32, device=self.device) for k, v in batch.items()}
 
     def sample_batch(self, batch_size=768):
         effective_len = self.len_used[0:self.ptr_traj]
         size_all = np.sum(effective_len)
         # random indexes in usable range
         idxs = np.random.randint(0, size_all, size=batch_size)
-        # adjusted cumulative length for indexs
         cum_len_idxs = np.cumsum(effective_len) - 1
-        # calculating rows and columns for usable arrays
+
         rows = np.searchsorted(cum_len_idxs, idxs)
         cols = idxs - (np.append([0], (cum_len_idxs + 1))[rows])
 
@@ -105,8 +95,7 @@ class DynamicTrajectoryBuffer:
             pi_logp=self.pi_logp_buf[rows, cols],
             done=self.done_buf[rows, cols],
         )
-        return {k: torch.as_tensor(v, dtype=torch.float32,
-                                   device=self.device) for k, v in batch.items()}
+        return {k: torch.as_tensor(v, dtype=torch.float32, device=self.device) for k, v in batch.items()}
 
     def sample_traj(self):
         row = np.random.randint(0, self.size_traj)
@@ -117,8 +106,7 @@ class DynamicTrajectoryBuffer:
             reward=self.rew_buf[row, 0:len],
             pi_logp=self.pi_logp_buf[row, 0:len],
         )
-        return {k: torch.as_tensor(v, dtype=torch.float32,
-                                   device=self.device).unsqueeze(1) for k, v in batch.items()}
+        return {k: torch.as_tensor(v, dtype=torch.float32, device=self.device).unsqueeze(1) for k, v in batch.items()}
 
     def stored_interactions(self):
         return self.interactions

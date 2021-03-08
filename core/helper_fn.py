@@ -56,21 +56,22 @@ class Sampler:
                 self.buffer.next_traj()
         return performed_steps
 
+
 class TargetAction:
     def __init__(self, device, ac_targ, ds):
         self.device = device
-        self.actor = ac_targ.pi
+        self.actor = ac_targ
         self.ds = ds
 
     def __call__(self, state, deterministic=False):
-        mean, chol = self.actor.forward(
+        mean, chol = self.actor.pi.forward(
             torch.as_tensor(state,
                             dtype=torch.float32,
                             device=self.device).reshape(1, self.ds))
         if deterministic:
             return mean, None
-        act = GaussianMLPActor.get_act(mean, chol).squeeze()
-        return act, GaussianMLPActor.get_logp(mean, chol, act)
+        act = self.actor.get_act(mean, chol).squeeze()
+        return act, self.actor.get_logp(mean, chol, act)
 
 
 class TestAgent:

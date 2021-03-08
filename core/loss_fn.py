@@ -47,8 +47,7 @@ class UpdateQRetrace:
     def __call__(self):
         self.critic_optimizer.zero_grad()
 
-        rows, cols = self.buffer.sample_idxs(batch_size=self.batch_size)
-        samples = self.buffer.sample_trajectories(rows, cols)
+        samples = self.buffer.sample_trajectories(batch_size=self.batch_size)
         batch_q = self.ac.q.forward(samples['state'], samples['action'])
         batch_q = torch.transpose(batch_q, 0, 1)
 
@@ -56,12 +55,12 @@ class UpdateQRetrace:
         targ_q = torch.transpose(targ_q, 0, 1)
 
         targ_mean, targ_chol = self.ac_targ.pi.forward(samples['state'])
-        targ_act = GaussianMLPActor.get_act(targ_mean, targ_chol)
+        targ_act = self.ac_targ.get_act(targ_mean, targ_chol)
 
         exp_targ_q = self.ac_targ.q.forward(samples['state'], targ_act)
         exp_targ_q = torch.transpose(exp_targ_q, 0, 1)
 
-        targ_act_logp = GaussianMLPActor.get_logp(targ_mean, targ_chol, samples['action']).unsqueeze(-1)
+        targ_act_logp = self.ac_targ.get_logp(targ_mean, targ_chol, samples['action']).unsqueeze(-1)
         targ_act_logp = torch.transpose(targ_act_logp, 0, 1)
 
         retrace = Retrace(device=self.device)
@@ -86,6 +85,7 @@ class UpdateQRetrace:
             p_targ.data.add_((1 - self.polyak) * p.data)
 
         self.run += 1
+
 
 class UpdateQ_TD0:
     def __init__(self,
@@ -198,7 +198,7 @@ class PolicyUpdateNonParametric:
         state_batch = samples['state']
         with torch.no_grad():
             b_μ, b_A = self.ac_targ.pi.forward(state_batch)  # (B,)
-            sampled_actions = GaussianMLPActor.get_act(b_μ, b_A, amount=(M,))
+            sampled_actions = self.ac_targ.get_act(b_μ, b_A, amount=(M,))
             expanded_states = state_batch[None, ...].expand(M, -1, -1)  # (M, B, ds)
             targ_q = self.ac_targ.q_forward(
                 expanded_states.reshape(-1, self.ds),  # (M * B, ds)
@@ -211,8 +211,8 @@ class PolicyUpdateNonParametric:
         mean, std = self.ac.pi.forward(state_batch)
         loss_p = torch.mean(
             qij * (
-                    GaussianMLPActor.get_logp(mean, b_A, sampled_actions, expand=(M, B)) +
-                    GaussianMLPActor.get_logp(b_μ, std, sampled_actions, expand=(M, B))
+                    self.ac_targ.get_logp(mean, b_A, sampled_actions, expand=(M, B)) +
+                    self.ac_targ.get_logp(b_μ, std, sampled_actions, expand=(M, B))
             )
         )
         self.writer.add_scalar('loss_pi', loss_p.item(), self.run)

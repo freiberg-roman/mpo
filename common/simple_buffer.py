@@ -4,7 +4,7 @@ import numpy as np
 
 class SimpleBuffer:
     """
-    A simple FIFO experience replay buffer for SAC agents.
+    A simple FIFO experience replay buffer
     """
 
     def __init__(self, state_dim, action_dim, device, size=2000000):

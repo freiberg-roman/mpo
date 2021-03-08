@@ -49,21 +49,6 @@ class GaussianMLPActor(nn.Module):
         std = F.softplus(std)
         return mean, std
 
-    @staticmethod
-    def get_logp(mean, std, action, expand=None):
-        if expand is not None:
-            dist = Independent(Normal(mean, std), reinterpreted_batch_ndims=1).expand(expand)
-        else:
-            dist = Independent(Normal(mean, std), reinterpreted_batch_ndims=1)
-        return dist.log_prob(action)
-
-    @staticmethod
-    def get_act(mean, std, amount=None):
-        dist = Independent(Normal(mean, std), reinterpreted_batch_ndims=1)
-        if amount is not None:
-            return dist.sample(amount)
-        return dist.sample()
-
 
 class MLPQFunction(nn.Module):
 
@@ -96,3 +81,18 @@ class MLPActorCritic(nn.Module):
     def q_forward(self, state, act):
         return torch.min(self.q1.forward(state, act),
                          self.q2.forward(state, act))
+
+    @staticmethod
+    def get_logp(mean, std, action, expand=None):
+        if expand is not None:
+            dist = Independent(Normal(mean, std), reinterpreted_batch_ndims=1).expand(expand)
+        else:
+            dist = Independent(Normal(mean, std), reinterpreted_batch_ndims=1)
+        return dist.log_prob(action)
+
+    @staticmethod
+    def get_act(mean, std, amount=None):
+        dist = Independent(Normal(mean, std), reinterpreted_batch_ndims=1)
+        if amount is not None:
+            return dist.sample(amount)
+        return dist.sample()

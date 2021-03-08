@@ -95,4 +95,4 @@ class TestAgent:
                 ep_len += 1
             ep_ret_list.append(ep_ret)
         self.writer.add_scalar('test_ep_ret', np.array(ep_ret_list).mean(), run)
-        print('test_ep_ret:', np.array(ep_ret_list).mean(), ' ', run)
+        print('test_ep_ret:', np.array(ep_ret_list).mean(), ' run:', run + 1)

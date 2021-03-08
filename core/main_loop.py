@@ -36,6 +36,7 @@ def runner(writer,
             q_update()
             # update policy
             pi_update()
+
             one_step_update()
             total_updates += 1
             inner_it += 1

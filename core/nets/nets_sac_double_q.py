@@ -75,7 +75,7 @@ class MLPQFunction(nn.Module):
         return torch.squeeze(q, -1)  # Critical to ensure q has right shape.
 
 
-class MLPActorCritic(nn.Module):
+class MLPActorCriticSAC(nn.Module):
 
     def __init__(self, observation_space, action_space, hidden_sizes=(256, 256),
                  activation=nn.ReLU):
@@ -94,3 +94,11 @@ class MLPActorCritic(nn.Module):
         with torch.no_grad():
             a, _ = self.pi(obs, deterministic, False)
             return a.numpy()
+
+    @staticmethod
+    def get_act(act, logp):
+        return act
+
+    @staticmethod
+    def get_logp(act, logp, stuff):
+        return logp

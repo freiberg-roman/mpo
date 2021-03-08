@@ -5,6 +5,7 @@ import gym
 from core.main_loop import runner
 from core.nets.nets_mpo_double_q import MLPActorCritic
 from core.nets.nets_mpo_single_q import MLPActorCriticSingle
+from core.nets.nets_sac_double_q import MLPActorCriticSAC
 from copy import deepcopy
 import itertools
 import torch
@@ -277,7 +278,8 @@ def sac(env_name,
         update_after=50):
     env = gym.make(env_name)
     env_test = gym.make(env_name)
-    ac = MLPActorCriticSingle(env, local_device).to(device=local_device)
+    # ac = MLPActorCriticSAC(env.observation_space, env.action_space).to(device=local_device)
+    ac = MLPActorCritic(env, local_device).to(device=local_device)
     ac_targ = deepcopy(ac).to(device=local_device)
 
     for p in ac_targ.parameters():

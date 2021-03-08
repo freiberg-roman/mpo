@@ -4,16 +4,16 @@ import time
 def runner(writer,
            q_update,
            pi_update,
+           one_step_update,
+           target_update,
            sampler,
            test_agent,
-           ac,
-           ac_targ,
            buffer,
-           total_steps=40000,
-           min_steps_per_iteration=1000,
+           total_steps=12000,
+           min_steps_per_iteration=50,
            test_after=4000,
-           update_steps=1200,
-           update_after=300,
+           update_steps=50,
+           update_after=50,
            ):
     it = 0
     current_steps = 0
@@ -30,13 +30,13 @@ def runner(writer,
 
             # update target networks
             if inner_it % update_after == 0:
-                for target_param, param in zip(ac_targ.pi.parameters(), ac.pi.parameters()):
-                    target_param.data.copy_(param.data)
+                target_update()
 
             # update q values
             q_update()
             # update policy
             pi_update()
+            one_step_update()
             total_updates += 1
             inner_it += 1
 

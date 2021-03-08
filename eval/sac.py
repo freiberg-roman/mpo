@@ -1,5 +1,5 @@
 import argparse
-from sac.sac import sac
+from core.sac.sac import sac
 import gym
 from torch.utils.tensorboard import SummaryWriter
 

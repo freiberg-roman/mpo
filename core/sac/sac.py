@@ -3,9 +3,8 @@ import itertools
 import numpy as np
 import torch
 from torch.optim import Adam
-from torch.utils.tensorboard import SummaryWriter
 import time
-import sac.core as core
+import core.sac.core as core
 
 
 class ReplayBuffer:

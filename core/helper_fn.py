@@ -16,7 +16,6 @@ class Sampler:
         self.sample_min = sample_min
         self.first_run = True
         self.max_ep_len = max_ep_len
-        self.ac_targ = ac_targ
 
         # internal variables
         self.s = self.env.reset()
@@ -33,16 +32,16 @@ class Sampler:
         while performed_steps < to_perform_steps:
             a, logp = self.actor_step(self.s)
             # do step in environment
-            s2, r, d, _ = self.env.step(a.reshape(1, self.da).cpu().numpy())
+            s2, r, d, _ = self.env.step(a.reshape(1, self.da).detach().cpu().numpy())
             self.ep_len += 1
             performed_steps += 1
 
             self.buffer.store(
                 self.s.reshape(self.ds),
                 s2.reshape(self.ds),
-                a.cpu().numpy(),
+                a.detach().cpu().numpy(),
                 r,
-                logp.cpu().numpy(),
+                logp.detach().cpu().numpy(),
                 d)
 
             # update state
@@ -56,7 +55,22 @@ class Sampler:
         return performed_steps
 
 
-class TargetAction:
+class TargetActionSAC:
+    def __init__(self, device, ac_targ, ds):
+        self.device = device
+        self.actor = ac_targ
+        self.ds = ds
+
+    def __call__(self, state, deterministic=False):
+        act, logp = self.actor.pi.forward(
+            torch.as_tensor(state,
+                            dtype=torch.float32,
+                            device=self.device).reshape(1, self.ds),
+            deterministic=deterministic)
+        return act, logp
+
+
+class TargetActionMPO:
     def __init__(self, device, ac_targ, ds):
         self.device = device
         self.actor = ac_targ

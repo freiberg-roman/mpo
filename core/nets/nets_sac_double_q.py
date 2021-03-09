@@ -94,11 +94,3 @@ class MLPActorCriticSAC(nn.Module):
         with torch.no_grad():
             a, _ = self.pi(obs, deterministic, False)
             return a.numpy()
-
-    @staticmethod
-    def get_act(act, logp):
-        return act
-
-    @staticmethod
-    def get_logp(act, logp, stuff):
-        return logp

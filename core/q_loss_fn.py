@@ -82,7 +82,6 @@ class UpdateQ_TD:
         self.gamma = gamma
         self.entropy = entropy
         self.run = 0
-        self.polyak = 0.995
 
     def __call__(self):
         self.critic_optimizer.zero_grad()
@@ -94,7 +93,6 @@ class UpdateQ_TD:
 
         with torch.no_grad():
             mean, std = self.ac.pi.forward(samples['state_next'])
-            # mean, std = self.ac_targ.pi.forward(samples['state_next'])
             act_next = self.ac.get_act(mean, std)
             logp = self.ac.get_logp(mean, std, act_next)
 
@@ -112,6 +110,61 @@ class UpdateQ_TD:
         self.writer.add_scalar('q', targ_q.detach().mean().item(), self.run)
         self.writer.add_scalar('q_min', targ_q.detach().min().item(), self.run)
         self.writer.add_scalar('q_max', targ_q.detach().max().item(), self.run)
+
+        loss_q.backward()
+        self.critic_optimizer.step()
+
+        self.run += 1
+
+
+class UpdateQ_TDE:
+    def __init__(self,
+                 writer,
+                 critic_optimizer,
+                 ac,
+                 ac_targ,
+                 buffer,
+                 batch_size,
+                 gamma,
+                 entropy):
+        self.writer = writer
+        self.critic_optimizer = critic_optimizer
+        self.ac = ac
+        self.ac_targ = ac_targ
+        self.buffer = buffer
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.entropy = entropy
+        self.run = 0
+
+    def __call__(self):
+        self.critic_optimizer.zero_grad()
+        samples = self.buffer.sample_batch(batch_size=self.batch_size)
+
+        q1 = self.ac.q1(samples['state'], samples['action'])
+        q2 = self.ac.q2(samples['state'], samples['action'])
+
+        # Bellman backup for Q functions
+        with torch.no_grad():
+            # Target actions come from *current* policy
+            act_next, logp_act_next = self.ac.pi.forward(samples['state_next'])
+
+            # Target Q-values
+            q1_pi_targ = self.ac_targ.q1(samples['state_next'], act_next)
+            q2_pi_targ = self.ac_targ.q2(samples['state_next'], act_next)
+            q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
+            backup = samples['reward'] + self.gamma * (1 - samples['done']) * (q_pi_targ - self.entropy * logp_act_next)
+
+        # MSE loss against Bellman backup
+        loss_q1 = ((q1 - backup) ** 2).mean()
+        loss_q2 = ((q2 - backup) ** 2).mean()
+        loss_q = loss_q1 + loss_q2
+
+        # Useful info for logging
+        self.writer.add_scalar('q_loss', loss_q.item(), self.run)
+        self.writer.add_scalar('q', torch.min(q1.detach(), q2.detach()).cpu().numpy().mean(), self.run)
+        self.writer.add_scalar('q_min', torch.min(q1.detach(), q2.detach()).cpu().numpy().min(), self.run)
+        self.writer.add_scalar('q_max', torch.min(q1.detach(), q2.detach()).cpu().numpy().max(), self.run)
 
         loss_q.backward()
         self.critic_optimizer.step()

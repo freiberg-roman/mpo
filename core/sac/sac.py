@@ -41,7 +41,7 @@ class ReplayBuffer:
 
 def sac(env_fn, writer, actor_critic=core.MLPActorCritic, ac_kwargs=dict(),
         steps_per_epoch=4000, epochs=100, replay_size=int(1e6), gamma=0.99,
-        polyak=0.995, lr=1e-3, alpha=0.2, batch_size=100, start_steps=10000,
+        polyak=0.995, lr=1e-3, alpha=0.2, batch_size=100, start_steps=0,
         update_after=1000, update_every=50, num_test_episodes=50, max_ep_len=1000):
 
     env, test_env = env_fn(), env_fn()
@@ -170,6 +170,7 @@ def sac(env_fn, writer, actor_critic=core.MLPActorCritic, ac_kwargs=dict(),
     start_time = time.time()
     o, ep_ret, ep_len = env.reset(), 0, 0
     run = 0
+    updates = 0
 
     # Main loop: collect experience in env and update/log each epoch
     for t in range(total_steps):
@@ -206,6 +207,7 @@ def sac(env_fn, writer, actor_critic=core.MLPActorCritic, ac_kwargs=dict(),
         # Update handling
         if t >= update_after and t % update_every == 0:
             for j in range(update_every):
+                updates += 1
                 batch = replay_buffer.sample_batch(batch_size)
                 update(batch, update_every * run + j)
             run += 1
@@ -218,4 +220,5 @@ def sac(env_fn, writer, actor_critic=core.MLPActorCritic, ac_kwargs=dict(),
             # Test the performance of the deterministic version of the agent.
             test_agent(epoch)
             writer.flush()
+            print('updates in epoch: ' + str(updates))
             print('epoch done')

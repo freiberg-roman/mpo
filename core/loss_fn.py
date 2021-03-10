@@ -3,6 +3,16 @@ import torch
 
 
 def gaussian_kl(targ_mean, mean, targ_std, std):
+    """
+    Computes the gaussian KL for both mean and covariance. Covariance is assumed to be a diagonal
+    matrix.
+
+    @param targ_mean:
+    @param mean:
+    @param targ_std:
+    @param std:
+    @return: tuple of mean -and covariance KL as a tensor of dimension ?
+    """
     n = std.size(-1)
     cov = std ** 2
     targ_cov = targ_std ** 2

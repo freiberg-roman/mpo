@@ -26,18 +26,45 @@ def mpo_non_parametric_td0(env_name,
                            lr_q=5e-4,
                            lr_kl=0.01,
                            eps_dual=0.1,
-                           eps_mean=0.1,
-                           eps_cov=0.0001,
-                           batch_size=768,
+                           eps_mean=0.05,
+                           eps_cov=0.00001,
+                           batch_size=128,
                            batch_size_act=20,
                            gamma=0.99,
-                           total_steps=300000,
+                           total_steps=12000,
                            min_steps_per_epoch=50,
                            test_after=4000,
                            update_steps=50,
                            update_after=50,
                            polyak=0.995
                            ):
+    """
+    Builds a runnable version of the MPO non-parametric version using double Q functions in combination with TD0
+    for updating Q values
+
+    @param env_name: string with the environment to train and test on
+    @param local_device: either 'cuda:0' or 'cpu'. Note: cpu is still used in Open AI gym
+    @param writer: SummaryWriter from tensorboard used for logging. Valid stub can also be used
+
+    @param lr_pi: Adam learning rate for policy
+    @param lr_q: Adam learning rate for q values
+    @param lr_kl: Adam learning rate for lagrange constrains
+    @param eps_dual: epsilon constrain for dual function
+    @param eps_mean: epsilon KL constrain for mean
+    @param eps_cov: epsilon KL constrain for covariance
+    @param batch_size: batch size of states sampled per update step
+    @param batch_size_act: batch size of actions sampled for each state to estimate expectations
+    @param gamma: discount factor used in TD0
+    @param total_steps: minimal amount of steps that will be performed during training phase
+    @param min_steps_per_epoch: minimal amount of steps that will be sampled during one iteration of learning
+    @param test_after: minimal amount of steps that will be performed before evaluating model
+    @param update_steps: amount of updates in each iteration (before next sampling step)
+    @param update_after: amount of updates after which the target model will be copied over (only for policy)
+    @param polyak: parameter for running averages in target updates for q functions
+
+    @return: runner function to start learning process
+    """
+
     env = gym.make(env_name)
     env_test = gym.make(env_name)
     ac = MLPActorCritic(env, local_device).to(device=local_device)
@@ -146,19 +173,47 @@ def mpo_non_parametric_retrace(env_name,
                                lr_q=5e-4,
                                lr_kl=0.01,
                                eps_dual=0.1,
-                               eps_mean=0.1,
-                               eps_cov=0.0001,
-                               batch_size=768,
+                               eps_mean=0.05,
+                               eps_cov=0.00001,
+                               batch_size=128,
                                batch_size_act=20,
                                gamma=0.99,
-                               total_steps=300000,
-                               min_steps_per_epoch=1000,
+                               total_steps=12000,
+                               min_steps_per_epoch=50,
                                test_after=4000,
                                update_steps=50,
                                update_after=50,
                                rollout_len=5,
                                polyak=0.995,
                                ):
+    """
+    Builds a runnable version of the MPO non-parametric version using Retrace algorithm
+    for updating Q values
+
+    @param env_name: string with the environment to train and test on
+    @param local_device: either 'cuda:0' or 'cpu'. Note: cpu is still used in Open AI gym
+    @param writer: SummaryWriter from tensorboard used for logging. Valid stub can also be used
+
+
+    @param lr_pi: Adam learning rate for policy
+    @param lr_q: Adam learning rate for q values
+    @param lr_kl: Adam learning rate for lagrange constrains
+    @param eps_dual: epsilon constrain for dual function
+    @param eps_mean: epsilon KL constrain for mean
+    @param eps_cov: epsilon KL constrain for covariance
+    @param batch_size: batch size of states sampled per update step
+    @param batch_size_act: batch size of actions sampled for each state to estimate expectations
+    @param gamma: discount factor used in TD0
+    @param total_steps: minimal amount of steps that will be performed during training phase
+    @param min_steps_per_epoch: minimal amount of steps that will be sampled during one iteration of learning
+    @param test_after: minimal amount of steps that will be performed before evaluating model
+    @param update_steps: amount of updates in each iteration (before next sampling step)
+    @param update_after: amount of updates after which the target model will be copied over (only for policy)
+    @param rollout_len: length of sample trajectories used in Retrace algorithm
+    @param polyak: parameter for running averages in target updates for q functions
+
+    @return: runner function to start learning process
+    """
     env = gym.make(env_name)
     env_test = gym.make(env_name)
     ac = MLPActorCriticSingle(env, local_device).to(device=local_device)
@@ -261,19 +316,44 @@ def mpo_parametric_td0(env_name,
                        lr_pi=5e-4,
                        lr_q=5e-4,
                        lr_kl=0.01,
-                       eps_mean=0.1,
-                       eps_cov=0.0001,
-                       batch_size=768,
+                       eps_mean=0.05,
+                       eps_cov=0.00001,
+                       batch_size=128,
                        batch_size_act=20,
                        gamma=0.99,
-                       total_steps=300000,
-                       min_steps_per_epoch=1000,
+                       total_steps=12000,
+                       min_steps_per_epoch=50,
                        test_after=4000,
                        update_steps=50,
                        update_after=50,
-                       rollout_len=5,
                        polyak=0.995,
                        ):
+    """
+    Builds a runnable version of the MPO parametric version using TD0 algorithm
+    for updating Q values
+
+    @param env_name: string with the environment to train and test on
+    @param local_device: either 'cuda:0' or 'cpu'. Note: cpu is still used in Open AI gym
+    @param writer: SummaryWriter from tensorboard used for logging. Valid stub can also be used
+
+
+    @param lr_pi: Adam learning rate for policy
+    @param lr_q: Adam learning rate for q values
+    @param lr_kl: Adam learning rate for lagrange constrains
+    @param eps_mean: epsilon KL constrain for mean
+    @param eps_cov: epsilon KL constrain for covariance
+    @param batch_size: batch size of states sampled per update step
+    @param batch_size_act: batch size of actions sampled for each state to estimate expectations
+    @param gamma: discount factor used in TD0
+    @param total_steps: minimal amount of steps that will be performed during training phase
+    @param min_steps_per_epoch: minimal amount of steps that will be sampled during one iteration of learning
+    @param test_after: minimal amount of steps that will be performed before evaluating model
+    @param update_steps: amount of updates in each iteration (before next sampling step)
+    @param update_after: amount of updates after which the target model will be copied over (only for policy)
+    @param polyak: parameter for running averages in target updates for q functions
+
+    @return: runner function to start learning process
+    """
     env = gym.make(env_name)
     env_test = gym.make(env_name)
     ac = MLPActorCritic(env, local_device).to(device=local_device)
@@ -292,9 +372,9 @@ def mpo_parametric_td0(env_name,
     ds = env.observation_space.shape[0]
 
     min, max = episode_len[env_name]
-    replay_buffer = DynamicTrajectoryBuffer(
-        ds, da, min, max, rollout_len, 2000, local_device
-    )
+    replay_buffer = SimpleBuffer(state_dim=ds,
+                                 action_dim=da,
+                                 device=local_device)
 
     # prepare modules
     q_update = UpdateQ_TD(
@@ -378,9 +458,9 @@ def mpo_parametric_retrace(env_name,
                            lr_pi=5e-4,
                            lr_q=5e-4,
                            lr_kl=0.01,
-                           eps_mean=0.1,
-                           eps_cov=0.0001,
-                           batch_size=768,
+                           eps_mean=0.05,
+                           eps_cov=0.00001,
+                           batch_size=128,
                            batch_size_act=20,
                            gamma=0.99,
                            total_steps=300000,
@@ -391,6 +471,32 @@ def mpo_parametric_retrace(env_name,
                            rollout_len=5,
                            polyak=0.995,
                            ):
+    """
+    Builds a runnable version of the MPO parametric version using TD0 algorithm
+    for updating Q values
+
+    @param env_name: string with the environment to train and test on
+    @param local_device: either 'cuda:0' or 'cpu'. Note: cpu is still used in Open AI gym
+    @param writer: SummaryWriter from tensorboard used for logging. Valid stub can also be used
+
+    @param lr_pi: Adam learning rate for policy
+    @param lr_q: Adam learning rate for q values
+    @param lr_kl: Adam learning rate for lagrange constrains
+    @param eps_mean: epsilon KL constrain for mean
+    @param eps_cov: epsilon KL constrain for covariance
+    @param batch_size: batch size of states sampled per update step
+    @param batch_size_act: batch size of actions sampled for each state to estimate expectations
+    @param gamma: discount factor used in TD0
+    @param total_steps: minimal amount of steps that will be performed during training phase
+    @param min_steps_per_epoch: minimal amount of steps that will be sampled during one iteration of learning
+    @param test_after: minimal amount of steps that will be performed before evaluating model
+    @param update_steps: amount of updates in each iteration (before next sampling step)
+    @param update_after: amount of updates after which the target model will be copied over (only for policy)
+    @param rollout_len: length of sample trajectories used in Retrace algorithm
+    @param polyak: parameter for running averages in target updates for q functions
+
+    @return: runner function to start learning process
+    """
     env = gym.make(env_name)
     env_test = gym.make(env_name)
     ac = MLPActorCriticSingle(env, local_device).to(device=local_device)
@@ -496,6 +602,27 @@ def sac(env_name,
         total_steps=12000,
         test_after=4000,
         update_after=50):
+    """
+    Soft Actor Critic (SAC) implementation using this framework. Whole algorithm is conceptually
+    identical to Open AI's spinning up implementation. This implementation does not claim maximum performance.
+    It is simply used to establish a simple baseline to compare MPO against by using a similar architecture.
+
+    @param env_name: string with the environment to train and test on
+    @param local_device: either 'cuda:0' or 'cpu'. Note: cpu is still used in Open AI gym
+    @param writer: SummaryWriter from tensorboard used for logging. Valid stub can also be used
+    @param batch_size: batch size of states sampled per update step
+    @param update_steps: amount of updates in each iteration (before next sampling step)
+    @param min_steps_per_epoch: minimal amount of steps that will be sampled during one iteration of learning
+    @param polyak: parameter for running averages in target updates for q functions and policy
+    @param lr: Adam learning rate for both policy and q functions
+    @param entropy: also known as alpha temperature parameter which controls the influence of entropy in reward
+    @param gamma: discount factor used in TD0
+    @param total_steps: minimal amount of steps that will be performed during training phase
+    @param test_after: minimal amount of steps that will be performed before evaluating model
+    @param update_after: this parameter is not used and only serves as a stub
+
+    @return: runner function to start learning process
+    """
     env = gym.make(env_name)
     env_test = gym.make(env_name)
     ac = MLPActorCriticSAC(env.observation_space, env.action_space).to(device=local_device)

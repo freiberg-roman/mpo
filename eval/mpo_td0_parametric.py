@@ -48,5 +48,4 @@ if __name__ == '__main__':
             min_steps_per_epoch=args.min_steps_per_epoch,
             test_after=args.test_after,
             total_steps=args.total_steps,
-            rollout_len=args.rollout_len
         )()

@@ -367,6 +367,7 @@ class PolicySACUpdate:
         @param entropy: temperature parameter that influences the impact of entropy in the reward
         @param batch_size: batch size for states
         """
+
         self.writer = writer
         self.buffer = buffer
         self.ac = ac

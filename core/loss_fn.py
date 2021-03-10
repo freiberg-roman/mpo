@@ -7,12 +7,15 @@ def gaussian_kl(targ_mean, mean, targ_std, std):
     Computes the gaussian KL for both mean and covariance. Covariance is assumed to be a diagonal
     matrix.
 
-    @param targ_mean:
-    @param mean:
-    @param targ_std:
-    @param std:
-    @return: tuple of mean -and covariance KL as a tensor of dimension ?
+    B stands for batch size
+    A stands for action dimension (defined by environment)
+    @param targ_mean: (B, A) tensor with mean values from target network
+    @param mean: (B, A) tensor with mean values from current network
+    @param targ_std: (B, A) tensor with standard deviations from target network
+    @param std: (B, A) tensor with standard deviations from current network
+    @return: tuple of mean -and covariance KL as a tensor
     """
+
     n = std.size(-1)
     cov = std ** 2
     targ_cov = targ_std ** 2
@@ -26,12 +29,27 @@ def gaussian_kl(targ_mean, mean, targ_std, std):
 
 
 def dual(eta, targ_q, eps_dual):
+    """
+    Computes the loss of the dual function which results from an lagrange optimization problem.
+    This is a more numerical stable equivalent then the original proposal.
+
+    @param eta: tensor of current eta value
+    @param targ_q: (BA, BS)
+    @param eps_dual: float for restriction of dual function
+    @return: loss of dual function as a tensor
+    """
+
     max_q = torch.max(targ_q, dim=0).values
     return eta * eps_dual + torch.mean(max_q) \
            + eta * torch.mean(torch.log(torch.mean(torch.exp((targ_q - max_q) / eta), dim=0)))
 
 
 class PolicyUpdateNonParametric:
+    """
+    Capsules all the needed data to perform one update cycle per call for the policy.
+    This version implements the loss of the non parametric MPO version.
+    """
+
     def __init__(self,
                  device,
                  writer,
@@ -48,6 +66,26 @@ class PolicyUpdateNonParametric:
                  batch_size_act,
                  ds,
                  da):
+        """
+        Initializes all values that are needed for an update cycle of the policy
+
+        @param device: device either 'cuda:0' or 'cpu'
+        @param writer: Summary writer from tensorboard or an equivalent stub
+        @param ac: current actor critic networks
+        @param ac_targ: target actor critic networks
+        @param actor_eta_optimizer: Adam of similar one step optimizer for the policy network
+        @param eta: tensor with the initial eta value
+        @param eps_mean: epsilon for the mean kl constrain
+        @param eps_cov: epsilon for the covariance kl constrain
+        @param eps_dual: epsilon for the dual function constrain
+        @param lr_kl: learning rate for the kl values
+        @param buffer: replay buffer that provides samples from performed trajectories
+        @param batch_size: batch size for states
+        @param batch_size_act: batch size for actions per state
+        @param ds: dimension of state space (defined by the environment)
+        @param da: dimension of action space (defined by the environment)
+        """
+
         self.writer = writer
         self.ac = ac
         self.ac_targ = ac_targ
@@ -72,6 +110,10 @@ class PolicyUpdateNonParametric:
         self.run = 0
 
     def __call__(self):
+        """
+        Performs an update step for the policy
+        """
+
         B = self.B
         M = self.M
         samples = self.buffer.sample_batch(batch_size=B)
@@ -125,6 +167,11 @@ class PolicyUpdateNonParametric:
 
 
 class PolicyUpdateParametric:
+    """
+    Capsules all the needed data to perform one update cycle per call for the policy.
+    This version implements the loss of the parametric MPO version.
+    """
+
     def __init__(self,
                  device,
                  writer,
@@ -139,6 +186,24 @@ class PolicyUpdateParametric:
                  batch_size_act,
                  ds,
                  da):
+        """
+        Initializes all values that are needed for an update cycle of the policy
+
+        @param device: device either 'cuda:0' or 'cpu'
+        @param writer: Summary writer from tensorboard or an equivalent stub
+        @param ac: current actor critic networks
+        @param ac_targ: target actor critic networks
+        @param actor_eta_optimizer: Adam of similar one step optimizer for the policy network
+        @param eps_mean: epsilon for the mean kl constrain
+        @param eps_cov: epsilon for the covariance kl constrain
+        @param lr_kl: learning rate for the kl values
+        @param buffer: replay buffer that provides samples from performed trajectories
+        @param batch_size: batch size for states
+        @param batch_size_act: batch size for actions per state
+        @param ds: dimension of state space (defined by the environment)
+        @param da: dimension of action space (defined by the environment)
+        """
+
         self.writer = writer
         self.ac = ac
         self.ac_targ = ac_targ
@@ -161,6 +226,10 @@ class PolicyUpdateParametric:
         self.run = 0
 
     def __call__(self):
+        """
+        Performs an update step for the policy
+        """
+
         B = self.B
         M = self.M
         samples = self.buffer.sample_batch(batch_size=B)
@@ -211,6 +280,10 @@ class PolicyUpdateParametric:
 
 
 class UpdateLagrangeTrustRegionOptimizer:
+    """
+    Capsules all the data required to perform an update for the KL values in the policy update step.
+    """
+
     def __init__(self,
                  writer,
                  eta_mean,
@@ -218,6 +291,17 @@ class UpdateLagrangeTrustRegionOptimizer:
                  eps_mean,
                  eps_cov,
                  lr_kl):
+        """
+        Initializes all values that are needed for an update cycle of KL values
+
+        @param writer: Summary writer from tensorboard or an equivalent stub
+        @param eta_mean: tensor with initial value for lagrange mean
+        @param eta_cov: tensor with initial value for lagrange covariance
+        @param eps_mean: epsilon for the mean kl constrain
+        @param eps_cov: epsilon for the covariance kl constrain
+        @param lr_kl: learning rate for the kl values
+        """
+
         self.writer = writer
         self.optimizer = torch.optim.Adam(
             itertools.chain([eta_mean], [eta_cov]), lr=lr_kl)
@@ -227,6 +311,15 @@ class UpdateLagrangeTrustRegionOptimizer:
         self.eta_cov = eta_cov
 
     def __call__(self, c_mean, c_cov, run):
+        """
+        Performs an update step for the KL values
+
+        @param c_mean: mean KL value
+        @param c_cov: covariance KL value
+        @param run: current run of the update cycle
+        @return: lagrange loss for mean and covariance
+        """
+
         self.optimizer.zero_grad()
 
         self.eta_mean.clamp(min=0.0)
@@ -252,6 +345,10 @@ class UpdateLagrangeTrustRegionOptimizer:
 
 
 class PolicySACUpdate:
+    """
+    Capsules all the needed data to perform one update cycle per call for the policy.
+    This version implements the loss of Soft Actor Critic
+    """
 
     def __init__(self,
                  writer,
@@ -260,6 +357,16 @@ class PolicySACUpdate:
                  actor_optimizer,
                  entropy,
                  batch_size):
+        """
+        Initialize values
+
+        @param writer: Summary writer from tensorboard or an equivalent stub
+        @param buffer: replay buffer that provides samples from performed trajectories
+        @param ac: current actor critic networks
+        @param actor_optimizer: Adam of similar one step optimizer for the policy network
+        @param entropy: temperature parameter that influences the impact of entropy in the reward
+        @param batch_size: batch size for states
+        """
         self.writer = writer
         self.buffer = buffer
         self.ac = ac
@@ -269,6 +376,10 @@ class PolicySACUpdate:
         self.run = 0
 
     def __call__(self):
+        """
+        Performs an update step for the policy
+        """
+
         self.actor_optimizer.zero_grad()
 
         samples = self.buffer.sample_batch(batch_size=self.batch_size)

@@ -1,9 +1,12 @@
 import torch
-from core.nets.nets_mpo_double_q import GaussianMLPActor
 from common.retrace import Retrace
 
 
 class UpdateQRetrace:
+    """
+
+    """
+
     def __init__(self,
                  writer,
                  critic_optimizer,

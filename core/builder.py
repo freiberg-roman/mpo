@@ -194,7 +194,6 @@ def mpo_non_parametric_retrace(env_name,
     @param local_device: either 'cuda:0' or 'cpu'. Note: cpu is still used in Open AI gym
     @param writer: SummaryWriter from tensorboard used for logging. Valid stub can also be used
 
-
     @param lr_pi: Adam learning rate for policy
     @param lr_q: Adam learning rate for q values
     @param lr_kl: Adam learning rate for lagrange constrains
@@ -335,7 +334,6 @@ def mpo_parametric_td0(env_name,
     @param env_name: string with the environment to train and test on
     @param local_device: either 'cuda:0' or 'cpu'. Note: cpu is still used in Open AI gym
     @param writer: SummaryWriter from tensorboard used for logging. Valid stub can also be used
-
 
     @param lr_pi: Adam learning rate for policy
     @param lr_q: Adam learning rate for q values
@@ -610,6 +608,7 @@ def sac(env_name,
     @param env_name: string with the environment to train and test on
     @param local_device: either 'cuda:0' or 'cpu'. Note: cpu is still used in Open AI gym
     @param writer: SummaryWriter from tensorboard used for logging. Valid stub can also be used
+
     @param batch_size: batch size of states sampled per update step
     @param update_steps: amount of updates in each iteration (before next sampling step)
     @param min_steps_per_epoch: minimal amount of steps that will be sampled during one iteration of learning

@@ -4,7 +4,7 @@ from common.retrace import Retrace
 
 class UpdateQRetrace:
     """
-
+    Encapsulates Retrace algorithm for Q function updates such that on call one update cycle is performed.
     """
 
     def __init__(self,
@@ -16,6 +16,19 @@ class UpdateQRetrace:
                  batch_size,
                  gamma,
                  device):
+        """
+        Initializes needed values
+
+        @param writer: SummaryWriter from tensorboard for logging
+        @param critic_optimizer: Adam or similar one step optimizer for Q function updates
+        @param ac: current actor critic model
+        @param ac_targ: target actor critic model
+        @param buffer: replay buffer capable of sampling trajectories
+        @param batch_size: size of batch for retrace algorithm
+        @param gamma: discount factor
+        @param device: either 'cuda:0' or 'cpu'
+        """
+
         self.writer = writer
         self.critic_optimizer = critic_optimizer
         self.ac = ac
@@ -28,6 +41,10 @@ class UpdateQRetrace:
         self.polyak = 0.995
 
     def __call__(self):
+        """
+        On call whole update cycle is performed.
+        """
+
         self.critic_optimizer.zero_grad()
 
         samples = self.buffer.sample_trajectories(batch_size=self.batch_size)
@@ -67,6 +84,10 @@ class UpdateQRetrace:
 
 
 class UpdateQ_TD:
+    """
+    Encapsulates TD0 algorithm for Q function updates such that on call one update cycle is performed.
+    """
+
     def __init__(self,
                  writer,
                  critic_optimizer,
@@ -76,6 +97,19 @@ class UpdateQ_TD:
                  batch_size,
                  gamma,
                  entropy):
+        """
+        Initializes needed values
+
+        @param writer: SummaryWriter from tensorboard for logging
+        @param critic_optimizer: Adam or similar one step optimizer for Q function updates
+        @param ac: current actor critic model
+        @param ac_targ: target actor critic model
+        @param buffer: replay buffer capable of sampling trajectories
+        @param batch_size: size of batch for retrace algorithm
+        @param gamma: discount factor
+        @param entropy: steers the influence of entropy in estimation
+        """
+
         self.writer = writer
         self.critic_optimizer = critic_optimizer
         self.ac = ac
@@ -87,6 +121,10 @@ class UpdateQ_TD:
         self.run = 0
 
     def __call__(self):
+        """
+        On call whole update cycle is performed.
+        """
+
         self.critic_optimizer.zero_grad()
 
         samples = self.buffer.sample_batch(batch_size=self.batch_size)
@@ -121,6 +159,10 @@ class UpdateQ_TD:
 
 
 class UpdateQ_TDE:
+    """
+    Implements Soft Actor Critic Q update function such that on call a whole update cycle is performed.
+    """
+
     def __init__(self,
                  writer,
                  critic_optimizer,
@@ -130,6 +172,19 @@ class UpdateQ_TDE:
                  batch_size,
                  gamma,
                  entropy):
+        """
+        Initializes needed values
+
+        @param writer: SummaryWriter from tensorboard for logging
+        @param critic_optimizer: Adam or similar one step optimizer for Q function updates
+        @param ac: current actor critic model
+        @param ac_targ: target actor critic model
+        @param buffer: replay buffer capable of sampling trajectories
+        @param batch_size: size of batch for retrace algorithm
+        @param gamma: discount factor
+        @param entropy: steers the influence of entropy in estimation
+        """
+
         self.writer = writer
         self.critic_optimizer = critic_optimizer
         self.ac = ac
@@ -141,6 +196,10 @@ class UpdateQ_TDE:
         self.run = 0
 
     def __call__(self):
+        """
+        On call whole update cycle is performed.
+        """
+
         self.critic_optimizer.zero_grad()
         samples = self.buffer.sample_batch(batch_size=self.batch_size)
 

@@ -3,6 +3,10 @@ import torch
 
 
 class DynamicTrajectoryBuffer:
+    """
+    Replay buffer that uses a table to distinct between different trajectories.
+    """
+
     def __init__(self,
                  state_dim,
                  action_dim,
@@ -11,6 +15,18 @@ class DynamicTrajectoryBuffer:
                  traj_rollout,
                  traj_size,
                  device):
+        """
+        Initialize DynamicTrajectoryBuffer
+
+        @param state_dim: state dimension defined by the environment
+        @param action_dim: action dimension defined by actor from the environment
+        @param min_rollout: minimal length of trajectory (mostly environment dependent)
+        @param max_rollout: maximal length of trajectory (mostly environment dependent)
+        @param traj_rollout: length of rollout used in batches
+        @param traj_size: maximum amount of stored trajectories
+        @param device: either 'cuda:0' or 'cpu'
+        """
+
         self.s_buf = np.zeros((traj_size, max_rollout, state_dim), dtype=np.float32)
         self.s_next_buf = np.zeros((traj_size, max_rollout, state_dim), dtype=np.float32)
         self.action_buf = np.zeros((traj_size, max_rollout, action_dim), dtype=np.float32)
@@ -32,6 +48,17 @@ class DynamicTrajectoryBuffer:
         self.interactions = 0
 
     def store(self, state, state_next, action, reward, pi_logp, done):
+        """
+        Stores a complete step with actor information.
+
+        @param state: current state from the environment
+        @param state_next: next state from the environment
+        @param action:  action performed by the actor in the environment
+        @param reward: reward from performing (s, act) pair
+        @param pi_logp: logarithmic probability density form actor performing this step
+        @param done: 1 or 0 depending if this step is the final step of the trajectory
+        """
+
         assert self.ptr_step < self.max_rollout
 
         self.s_buf[self.ptr_traj, self.ptr_step, :] = state
@@ -46,7 +73,10 @@ class DynamicTrajectoryBuffer:
         self.len_used[self.ptr_traj] = self.ptr_step
 
     def next_traj(self):
-        # will commit the current trajectory
+        """
+        This will commit the current trajectory and start a new line for storage.
+        """
+
         assert self.ptr_step >= self.min_rollout  # is defined by environment
         self.len_used[self.ptr_traj] = self.ptr_step  # length of this trajectory
         self.ptr_traj = (self.ptr_traj + 1) % self.max_traj
@@ -54,8 +84,15 @@ class DynamicTrajectoryBuffer:
         self.size_traj = min(self.size_traj + 1, self.max_traj)
 
     def sample_trajectories(self, batch_size=128):
+        """
+        Returns a random batch of trajectories with rollout length specified by traj_rollout.
+
+        @param batch_size: size of returned batch
+        @return: random batch of size batch_size
+        """
+
         if self.ptr_step > 0:
-            # to include current yet unfinished trajectory
+            # to include current yet unfinished (current) trajectory
             effective_len = self.len_used[0:min(self.size_traj + 1, self.max_traj)] - (self.traj_rollout - 1)
         else:
             effective_len = self.len_used[0:self.size_traj] - (self.traj_rollout - 1)
@@ -78,6 +115,13 @@ class DynamicTrajectoryBuffer:
         return {k: torch.as_tensor(v, dtype=torch.float32, device=self.device) for k, v in batch.items()}
 
     def sample_batch(self, batch_size=768):
+        """
+        Function returns a random batch from stored interactions.
+
+        @param batch_size: size of the batch
+        @return: random batch of size batch_size
+        """
+
         effective_len = self.len_used[0:self.ptr_traj]
         size_all = np.sum(effective_len)
         # random indexes in usable range
@@ -98,6 +142,12 @@ class DynamicTrajectoryBuffer:
         return {k: torch.as_tensor(v, dtype=torch.float32, device=self.device) for k, v in batch.items()}
 
     def sample_traj(self):
+        """
+        Returns a random trajectory form buffer of full length.
+
+        @return: a whole trajectory from buffer
+        """
+
         row = np.random.randint(0, self.size_traj)
         len = self.len_used[row]
         batch = dict(
@@ -109,4 +159,10 @@ class DynamicTrajectoryBuffer:
         return {k: torch.as_tensor(v, dtype=torch.float32, device=self.device).unsqueeze(1) for k, v in batch.items()}
 
     def stored_interactions(self):
+        """
+        Returns the number of stored steps in this buffer.
+
+        @return: amount of stored steps
+        """
+
         return self.interactions

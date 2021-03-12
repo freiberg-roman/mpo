@@ -1,5 +1,5 @@
 import argparse
-from core.builder import sac
+from core.builder.builder_sac import sac
 from torch.utils.tensorboard import SummaryWriter
 
 if __name__ == '__main__':
@@ -14,7 +14,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_action', type=int, default=20)
     parser.add_argument('--batch_state', type=int, default=128)
     parser.add_argument('--rollout_len', type=int, default=5)
-    parser.add_argument('--name', type=str, default='sac_new3')
+    parser.add_argument('--name', type=str, default='sac_new')
     parser.add_argument('--repeat', type=int, default=1)
     parser.add_argument('--update_steps', type=int, default=50)
     parser.add_argument('--update_after', type=int, default=50)

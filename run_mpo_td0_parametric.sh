@@ -1,8 +1,8 @@
 pip install -e
 cd eval
-python mpo_retrace_parametric.py \
-  --env Pendulum-v0 \
-  --name mpo_retrace_200_01_10 \
+python mpo_td0_parametric.py \
+  --env HalfCheetah-v2 \
+  --name mpo_td0_parametric \
   --repeat 1 \
   --total_steps 12000 \
   --batch_state 128 \

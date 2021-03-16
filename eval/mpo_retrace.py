@@ -5,8 +5,8 @@ from torch.utils.tensorboard import SummaryWriter
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--env', type=str, default='Pendulum-v0')
-    # parser.add_argument('--env', type=str, default='HalfCheetah-v2')
+    # parser.add_argument('--env', type=str, default='Pendulum-v0')
+    parser.add_argument('--env', type=str, default='HalfCheetah-v2')
     parser.add_argument('--eps_dual', type=float, default=0.1)
     parser.add_argument('--eps_mean', type=float, default=0.05)
     parser.add_argument('--eps_cov', type=float, default=0.00001)

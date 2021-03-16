@@ -52,18 +52,19 @@ class Sampler:
             self.first_run = False
 
         while performed_steps < to_perform_steps:
-            a, logp = self.actor_step(self.s)
+            with torch.no_grad():
+                a, logp = self.actor_step(self.s)
             # do step in environment
-            s2, r, d, _ = self.env.step(a.reshape(1, self.da).detach().cpu().numpy())
+            s2, r, d, _ = self.env.step(a.reshape(1, self.da).cpu().numpy())
             self.ep_len += 1
             performed_steps += 1
 
             self.buffer.store(
                 self.s.reshape(self.ds),
                 s2.reshape(self.ds),
-                a.detach().cpu().numpy(),
+                a.cpu().numpy(),
                 r,
-                logp.detach().cpu().numpy(),
+                logp.cpu().numpy(),
                 d)
 
             # update state
@@ -82,17 +83,17 @@ class TargetActionSAC:
     Encapsulates soft actor critic model to be used for sampling
     """
 
-    def __init__(self, device, ac_targ, ds):
+    def __init__(self, device, ac, ds):
         """
         Initializes sampler
 
         @param device: either 'cuda:0' or 'cpu'
-        @param ac_targ: target actor critic
+        @param ac: actor critic
         @param ds: state dimension defined by environment
         """
 
         self.device = device
-        self.actor = ac_targ
+        self.actor = ac
         self.ds = ds
 
     def __call__(self, state, deterministic=False):
@@ -104,11 +105,12 @@ class TargetActionSAC:
         @return: returns action from model
         """
 
-        act, logp = self.actor.pi.forward(
-            torch.as_tensor(state,
-                            dtype=torch.float32,
-                            device=self.device).reshape(1, self.ds),
-            deterministic=deterministic)
+        with torch.no_grad():
+            act, logp = self.actor.pi.forward(
+                torch.as_tensor(state,
+                                dtype=torch.float32,
+                                device=self.device).reshape(1, self.ds),
+                deterministic=deterministic)
         return act, logp
 
 
@@ -177,7 +179,7 @@ class TestAgent:
         @param run: run of test in learning process
         """
         ep_ret_list = list()
-        for _ in tqdm(range(200), desc="testing model"):
+        for _ in tqdm(range(100), desc="testing model"):
             s, d, ep_ret, ep_len = self.env.reset(), False, 0, 0
             while not (d or (ep_len == self.max_ep_len)):
                 with torch.no_grad():

@@ -209,7 +209,7 @@ class UpdateQ_TDE:
         # Bellman backup for Q functions
         with torch.no_grad():
             # Target actions come from *current* policy
-            act_next, logp_act_next = self.ac.pi.forward(samples['state_next'])
+            act_next, logp_act_next = self.ac.pi(samples['state_next'])
 
             # Target Q-values
             q1_pi_targ = self.ac_targ.q1(samples['state_next'], act_next)

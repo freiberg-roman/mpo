@@ -122,7 +122,7 @@ class DynamicTrajectoryBuffer:
         @return: random batch of size batch_size
         """
 
-        effective_len = self.len_used[0:self.ptr_traj]
+        effective_len = self.len_used[0:self.max_traj]
         size_all = np.sum(effective_len)
         # random indexes in usable range
         idxs = np.random.randint(0, size_all, size=batch_size)

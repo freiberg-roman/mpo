@@ -1,5 +1,5 @@
 import time
-
+import torch
 
 def runner(writer,
            q_update,
@@ -63,7 +63,8 @@ def runner(writer,
 
         if buffer.stored_interactions() - current_steps >= test_after:
             print("=" * 80)
-            test_agent(it)
+            with torch.no_grad():
+                test_agent(it)
             writer.add_scalar(
                 'performed_steps', buffer.stored_interactions(), it)
 

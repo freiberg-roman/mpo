@@ -1,4 +1,5 @@
 import torch
+import itertools
 
 
 class PolicySACUpdate:
@@ -38,14 +39,18 @@ class PolicySACUpdate:
         Performs an update step for the policy
         """
 
+        for p in itertools.chain(self.ac.q1.parameters(), self.ac.q2.parameters()):
+            p.requires_grad = False
+
         self.actor_optimizer.zero_grad()
 
-        samples = self.buffer.sample_batch(batch_size=self.batch_size)
+        # samples = self.buffer.sample_batch(batch_size=self.batch_size)
+        samples = self.buffer.last_batch()
         s = samples['state']
-        pi, logp_pi = self.ac.pi.forward(s)
+        act, logp_pi = self.ac.pi(s)
 
-        q1_pi = self.ac.q1(s, pi)
-        q2_pi = self.ac.q2(s, pi)
+        q1_pi = self.ac.q1(s, act)
+        q2_pi = self.ac.q2(s, act)
         q_pi = torch.min(q1_pi, q2_pi)
 
         # Entropy-regularized policy loss
@@ -59,3 +64,6 @@ class PolicySACUpdate:
         self.writer.add_scalar('pi_logp', logp_pi.detach().cpu().numpy().mean(), self.run)
 
         self.run += 1
+
+        for p in itertools.chain(self.ac.q1.parameters(), self.ac.q2.parameters()):
+            p.requires_grad = True

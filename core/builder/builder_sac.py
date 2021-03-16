@@ -1,3 +1,4 @@
+from core.nets.nets_mpo_double_q import MLPActorCritic
 from core.q_loss.q_loss_fn import UpdateQ_TDE
 from core.policy_loss.loss_sac import PolicySACUpdate
 from core.helper_fn import Sampler, TestAgent, TargetActionSAC
@@ -90,7 +91,7 @@ def sac(env_name,
 
     actor_step = TargetActionSAC(
         device=local_device,
-        ac_targ=ac,
+        ac=ac,
         ds=ds
     )
 

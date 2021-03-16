@@ -17,6 +17,7 @@ class SimpleBuffer:
         @param size: amount of new steps that will be stored
         """
 
+        self.last = None
         self.s_buf = np.zeros((size, state_dim), dtype=np.float32)
         self.s_next_buf = np.zeros((size, state_dim), dtype=np.float32)
         self.act_buf = np.zeros((size, action_dim), dtype=np.float32)
@@ -62,9 +63,10 @@ class SimpleBuffer:
                      action=self.act_buf[idxs],
                      reward=self.rew_buf[idxs],
                      done=self.done_buf[idxs])
-        return {k: torch.as_tensor(v,
-                                   dtype=torch.float32,
-                                   device=self.device) for k, v in batch.items()}
+        self.last = {k: torch.as_tensor(v,
+                                        dtype=torch.float32,
+                                        device=self.device) for k, v in batch.items()}
+        return self.last
 
     def stored_interactions(self):
         """
@@ -81,3 +83,6 @@ class SimpleBuffer:
         """
 
         pass
+
+    def last_batch(self):
+        return self.last

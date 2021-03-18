@@ -1,9 +1,9 @@
 cd eval
 python mpo_retrace.py \
-  --env HalfCheetah-v2 \
-  --name mpo_retrace_ch \
+  --env Pendulum-v0 \
+  --name mpo_retrace_p \
   --repeat 1 \
-  --total_steps 100000 \
+  --total_steps 15000 \
   --batch_state 128 \
   --min_steps_per_epoch 100 \
   --test_after 5000 \

@@ -39,6 +39,10 @@ def dual(eta, targ_q, eps_dual):
     @param eps_dual: float for restriction of dual function
     @return: loss of dual function as a tensor
     """
+    # Bin mir nicht 100% sicher aber wenn hier als Argument D := targ_q / eta verwendet
+    # dann sollte ja D_max = max_q / eta sein und somit dann auch
+    # D - D_max + D_max = (targ - max_q) / eta + max_q / eta gelten. Dann würde aber sich eta rauskürzen.
+    # Wenn man aber hier vor torch.mean(max_q) ein eta vorschreibt, funktioniert der Algorithmus auch.
 
     max_q = torch.max(targ_q, dim=0).values
     return eta * eps_dual + torch.mean(max_q) \
@@ -245,7 +249,7 @@ class PolicyUpdateParametric:
             ).reshape(M, B)
 
         # M-step
-        adv = targ_q - targ_q.mean(dim=0) # (M, B) or (da, B)
+        adv = targ_q - targ_q.mean(dim=0)  # (M, B) or (da, B)
         # update policy based on lagrangian
         mean, std = self.ac.pi.forward(state_batch)
         loss_p = torch.mean(
@@ -335,5 +339,3 @@ class UpdateLagrangeTrustRegionOptimizer:
         self.writer.add_scalar('eta_cov', F.softplus(self.eta_cov), run)
 
         return F.softplus(self.eta_mean), F.softplus(self.eta_cov)
-
-

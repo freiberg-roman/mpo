@@ -1,9 +1,12 @@
-from setuptools import setup
-setup(name='mpo',
-      version='0.1',
-      description='MPO Algorithm',
-      author='Roman Freiberg',
-      author_email='mr-orange-fiber@googlemail.com',
-      license='MIT',
-      packages=['eval', 'mpo_retrace', 'utils', 'sac'],
-      zip_safe=False)
+from setuptools import setup, find_packages
+
+setup(
+    name='mpo',
+    version='1.0',
+    packages=find_packages(),
+    url='',
+    license='',
+    author='roman',
+    author_email='',
+    description='mpo and sac implementation'
+)

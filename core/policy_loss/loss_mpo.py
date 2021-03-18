@@ -43,6 +43,7 @@ def dual(eta, targ_q, eps_dual):
     # dann sollte ja D_max = max_q / eta sein und somit dann auch
     # D - D_max + D_max = (targ - max_q) / eta + max_q / eta gelten. Dann würde aber sich eta rauskürzen.
     # Wenn man aber hier vor torch.mean(max_q) ein eta vorschreibt, funktioniert der Algorithmus auch.
+    # Bemerkung: eta ist hier softplus da es im Argument übergeben wird
 
     max_q = torch.max(targ_q, dim=0).values
     return eta * eps_dual + torch.mean(max_q) \

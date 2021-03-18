@@ -1,5 +1,6 @@
 import itertools
 import torch
+import torch.nn.functional as F
 
 
 def gaussian_kl(targ_mean, mean, targ_std, std):
@@ -128,7 +129,7 @@ class PolicyUpdateNonParametric:
             ).reshape(M, B)
 
         # M-step
-        qij = torch.softmax(targ_q / self.eta.item(), dim=0)  # (M, B) or (da, B)
+        qij = torch.softmax(targ_q / F.softplus(self.eta).item(), dim=0)  # (M, B) or (da, B)
         # update policy based on lagrangian
         mean, std = self.ac.pi.forward(state_batch)
         loss_p = torch.mean(
@@ -148,7 +149,7 @@ class PolicyUpdateNonParametric:
 
         # learn eta together with other policy parameters
         self.optimizer.zero_grad()
-        loss_eta = dual(self.eta, targ_q, self.eps_dual)
+        loss_eta = dual(F.softplus(self.eta), targ_q, self.eps_dual)
         loss_l = -(
                 loss_p
                 + eta_mean * (self.eps_mean - c_mean)
@@ -156,7 +157,7 @@ class PolicyUpdateNonParametric:
         ) + loss_eta
 
         self.writer.add_scalar('combined_loss', loss_l.item() - loss_eta.item(), self.run)
-        self.writer.add_scalar('eta', self.eta.item(), self.run)
+        self.writer.add_scalar('eta', F.softplus(self.eta).item(), self.run)
         self.writer.add_scalar('eta_loss', loss_eta.item(), self.run)
         self.writer.add_scalar('c_mean', c_mean.item(), self.run)
         self.writer.add_scalar('c_cov', c_cov.item(), self.run)
@@ -322,25 +323,17 @@ class UpdateLagrangeTrustRegionOptimizer:
 
         self.optimizer.zero_grad()
 
-        self.eta_mean.clamp(min=0.0)
-        self.eta_cov.clamp(min=0.0)
-        loss_eta_mean = self.eta_mean * (self.eps_mean - c_mean.item())
-        loss_eta_cov = self.eta_cov * (self.eps_cov - c_cov.item())
+        loss_eta_mean = F.softplus(self.eta_mean) * (self.eps_mean - c_mean.item())
+        loss_eta_cov = F.softplus(self.eta_cov) * (self.eps_cov - c_cov.item())
         loss_lagrange = loss_eta_mean + loss_eta_cov
         loss_lagrange.backward()
 
         self.optimizer.step()
 
-        eta_mean_ret = self.eta_mean.item()
-        if eta_mean_ret < 0.0:
-            eta_mean_ret = 0.0
-        self.writer.add_scalar('eta_mean', eta_mean_ret, run)
+        self.writer.add_scalar('eta_mean', F.softplus(self.eta_mean), run)
 
-        eta_cov_ret = self.eta_cov.item()
-        if eta_cov_ret < 0.0:
-            eta_cov_ret = 0.0
-        self.writer.add_scalar('eta_cov', eta_cov_ret, run)
+        self.writer.add_scalar('eta_cov', F.softplus(self.eta_cov), run)
 
-        return eta_mean_ret, eta_cov_ret
+        return F.softplus(self.eta_mean), F.softplus(self.eta_cov)
 
 

@@ -163,7 +163,7 @@ def sac(env_fn, writer, actor_critic=core.MLPActorCritic, ac_kwargs=dict(),
                 ep_len += 1
             ep_ret_list.append(ep_ret)
         writer.add_scalar('test_ep_ret', np.array(ep_ret_list).mean(), run - 1)
-        print('test_ep_ret: ', np.array(ep_ret_list).mean(), ' run:', run - 1)
+        print('test_ep_ret: ', np.array(ep_ret_list).mean(), ' run:', run)
 
     # Prepare for interaction with environment
     total_steps = steps_per_epoch * epochs

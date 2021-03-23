@@ -1,6 +1,6 @@
 cd eval
 python sac.py \
-  --env Ant-v2 \
-  --name sac \
-  --repeat 1 \
+  --env HalfCheetah-v2 \
+  --name sac_ch_p2 \
+  --repeat 5 \
 

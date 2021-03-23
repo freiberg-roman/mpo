@@ -33,7 +33,7 @@ if __name__ == '__main__':
 
         mpo_parametric_retrace(
             env_name=args.env,
-            local_device='cuda:0',
+            local_device='cpu',
             writer=writer,
             lr_pi=args.lr_pi,
             lr_q=args.lr_q,

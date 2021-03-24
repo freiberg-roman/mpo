@@ -1,6 +1,7 @@
 import time
 import torch
 
+
 def runner(writer,
            q_update,
            pi_update,
@@ -71,7 +72,8 @@ def runner(writer,
             it += 1
             current_steps = buffer.stored_interactions()
             print('time for update:', time.time() - start_time)
-            print('total updates', total_updates)
+            print('updates in epoch', total_updates)
+            print('total trajectories', sampler.perfomed_traj)
             print('total steps', buffer.stored_interactions())
             start_time = time.time()
             total_updates = 0

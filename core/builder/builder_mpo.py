@@ -226,7 +226,7 @@ def mpo_non_parametric_retrace(env_name,
 
     min, max = episode_len[env_name]
     replay_buffer = DynamicTrajectoryBuffer(
-        ds, da, min, max, rollout_len, 2000, local_device
+        ds, da, min, max, rollout_len, 20000, local_device
     )
 
     # prepare modules

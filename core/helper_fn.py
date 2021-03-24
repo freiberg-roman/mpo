@@ -37,6 +37,7 @@ class Sampler:
         # internal variables
         self.s = self.env.reset()
         self.ep_len = 0
+        self.perfomed_traj = 0
 
     def __call__(self):
         """
@@ -75,6 +76,7 @@ class Sampler:
                 self.s = self.env.reset()
                 self.ep_len = 0
                 self.buffer.next_traj()
+                self.perfomed_traj += 1
         return performed_steps
 
 

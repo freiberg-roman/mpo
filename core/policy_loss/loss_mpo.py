@@ -268,7 +268,6 @@ class PolicyUpdateParametric:
         # Update lagrange multipliers by gradient descent
         eta_mean, eta_cov = self.update_lagrange(c_mean, c_cov, self.run)
 
-        # learn eta together with other policy parameters
         self.optimizer.zero_grad()
         loss_l = -(
                 loss_p
@@ -336,7 +335,6 @@ class UpdateLagrangeTrustRegionOptimizer:
         self.optimizer.step()
 
         self.writer.add_scalar('eta_mean', F.softplus(self.eta_mean), run)
-
         self.writer.add_scalar('eta_cov', F.softplus(self.eta_cov), run)
 
         return F.softplus(self.eta_mean), F.softplus(self.eta_cov)

@@ -1,6 +1,6 @@
 cd eval
 python mpo_td0_parametric.py \
-  --env Pendulum-v0 \
+  --env HalfCheetah-v2 \
   --name mpo_td0_parametric \
   --repeat 1 \
   --total_steps 1000000 \

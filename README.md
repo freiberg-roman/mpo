@@ -1,5 +1,7 @@
 # MAP Policy Optimisation (MPO)
 
+Inspired by implementation of [daisatojp](https://github.com/daisatojp/mpo)
+
 References:
 
 MPO: [link](https://arxiv.org/abs/1806.06920)

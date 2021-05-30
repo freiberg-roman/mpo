@@ -1,6 +1,7 @@
 # MAP Policy Optimisation (MPO)
 
-Inspired by implementation of [daisatojp](https://github.com/daisatojp/mpo)
+Inspired by implementation of [daisatojp](https://github.com/daisatojp/mpo).
+Basic framework and SAC implementation are mostly taken from [OpenAI SpinningUp](https://github.com/openai/spinningup)
 
 References:
 

@@ -4,5 +4,6 @@ mpo.egg-info/
 mpo_algorith/__pycache__/
 results/
 utils/__pycache__/
-eval/runs/
+mpo/eval/runs/
 runs/
+venv/

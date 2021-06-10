@@ -11,7 +11,7 @@ RERPI: [link](https://arxiv.org/abs/1812.02256)
 
 # Installation
 
-Python 3.9+ and working MuJoCo installation is required.
+Python 3.9+ and working MuJoCo installation are required.
 Optional: Create conda environment with 
 
     conda create -n myenv python=3.9

@@ -1,0 +1,4 @@
+# @package _group_
+name: "sac"
+
+# just use default settings from OpenAI SpinningUp as they seem to run on SOA level

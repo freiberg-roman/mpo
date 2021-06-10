@@ -5,5 +5,7 @@ mpo_algorith/__pycache__/
 results/
 utils/__pycache__/
 mpo/eval/runs/
+mpo/examples/exp
+mpo/exp
 runs/
 venv/

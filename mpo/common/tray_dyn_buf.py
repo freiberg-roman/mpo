@@ -84,7 +84,7 @@ class DynamicTrajectoryBuffer:
         """
 
         assert self.ptr_step >= self.min_rollout  # is defined by environment
-        self.len_used[self.ptr_traj] = self.ptr_step  # length of this trajectory
+        self.len_used[self.ptr_traj] = self.ptr_step - 1  # length of this trajectory
         self.ptr_traj = (self.ptr_traj + 1) % self.max_traj
         self.ptr_step = 0
         self.size_traj = min(self.size_traj + 1, self.max_traj)

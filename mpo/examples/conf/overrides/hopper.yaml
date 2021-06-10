@@ -1,0 +1,5 @@
+# @package _group_
+env: "Hopper-v0"
+name: "hopper"
+
+total_steps: 100000

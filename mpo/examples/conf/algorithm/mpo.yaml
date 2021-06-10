@@ -1,0 +1,17 @@
+# @package _group_
+name: "mpo"
+
+eps_dual: 0.1
+eps_mean: 0.01
+eps_cov: 0.00001
+gamma: 0.99
+batch_action: 20
+batch_state: 128
+rollout_len: 10
+update_steps: 200
+update_after: 200
+min_steps_per_epoch: 200
+test_after: 5000
+lr_pi: 5e-4
+lr_q: 5e-4
+lr_kl: 0.01

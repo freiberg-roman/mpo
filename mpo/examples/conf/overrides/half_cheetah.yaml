@@ -1,0 +1,5 @@
+# @package _group_
+env: "HalfCheetah-v2"
+name: "half_cheetah"
+
+total_steps: 100000

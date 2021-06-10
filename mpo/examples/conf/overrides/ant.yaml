@@ -1,0 +1,5 @@
+# @package _group_
+env: "Ant-v2"
+name: "ant"
+
+total_steps: 1000000

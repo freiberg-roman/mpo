@@ -1,0 +1,5 @@
+# @package _group_
+env: "Pendulum-v0"
+name: "pendulum"
+
+total_steps: 12000

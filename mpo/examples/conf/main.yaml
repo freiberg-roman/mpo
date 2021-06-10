@@ -1,0 +1,16 @@
+defaults:
+  - algorithm: mpo
+  - q_learning: retrace
+  - overrides: pendulum
+
+experiment: default
+repeat: 1
+
+device: "cuda:0"
+root_dir: "./exp"
+hydra:
+  run:
+    dir: ${root_dir}_${algorithm.name}_${experiment}_${overrides.name}/${now:%Y.%m.%d}/${now:%H%M%S}
+
+  sweep:
+    dir: ${root_dir}_${algorithm.name}_${experiment}_${overrides.name}/${now:%Y.%m.%d}/${now:%H%M%S}

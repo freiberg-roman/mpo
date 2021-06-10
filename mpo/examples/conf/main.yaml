@@ -1,6 +1,6 @@
 defaults:
-  - algorithm: mpo
-  - q_learning: retrace
+  - algorithm: sac
+  - q_learning: td0
   - overrides: pendulum
 
 experiment: default
@@ -10,7 +10,7 @@ device: "cuda:0"
 root_dir: "./exp"
 hydra:
   run:
-    dir: ${root_dir}_${algorithm.name}_${experiment}_${overrides.name}/${now:%Y.%m.%d}/${now:%H%M%S}
+    dir: ${root_dir}/${algorithm.name}_${experiment}_${overrides.name}/${now:%Y.%m.%d}/${now:%H%M%S}
 
   sweep:
-    dir: ${root_dir}_${algorithm.name}_${experiment}_${overrides.name}/${now:%Y.%m.%d}/${now:%H%M%S}
+    dir: ${root_dir}/${algorithm.name}_${experiment}_${overrides.name}/${now:%Y.%m.%d}/${now:%H%M%S}

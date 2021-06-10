@@ -2,4 +2,4 @@
 env: "Pendulum-v0"
 name: "pendulum"
 
-total_steps: 12000
+total_steps: 10000

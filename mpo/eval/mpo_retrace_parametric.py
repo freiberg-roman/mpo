@@ -1,52 +1,39 @@
-import argparse
 from mpo.core.builder.builder_mpo_parametric import mpo_parametric_retrace
 from torch.utils.tensorboard import SummaryWriter
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
 
-    parser.add_argument("--env", type=str, default="Pendulum-v0")
-    # parser.add_argument('--env', type=str, default='HalfCheetah-v2')
-    parser.add_argument("--eps_mean", type=float, default=0.05)
-    parser.add_argument("--eps_cov", type=float, default=0.00001)
-    parser.add_argument("--gamma", type=float, default=0.99)
-    parser.add_argument("--batch_action", type=int, default=20)
-    parser.add_argument("--batch_state", type=int, default=128)
-    parser.add_argument("--rollout_len", type=int, default=5)
-    parser.add_argument("--name", type=str, default="test")
-    parser.add_argument("--repeat", type=int, default=1)
-    parser.add_argument("--update_steps", type=int, default=100)
-    parser.add_argument("--update_after", type=int, default=100)
-    parser.add_argument("--total_steps", type=int, default=12000)
-    parser.add_argument("--min_steps_per_epoch", type=int, default=100)
-    parser.add_argument("--test_after", type=int, default=4000)
-    parser.add_argument("--lr_pi", type=float, default=5e-4)
-    parser.add_argument("--lr_q", type=float, default=5e-4)
-    parser.add_argument("--lr_kl", type=float, default=0.01)
-    args = parser.parse_args()
-
-    for i in range(args.repeat):
-        if args.repeat == 1:
-            writer = SummaryWriter("../runs/" + args.name)
+def set_up_mpo_retace_parametric(cfg):
+    for i in range(cfg.repeat):
+        if cfg.repeat == 1:
+            writer = SummaryWriter(
+                "../runs/" + cfg.algorithm.name + "_" + cfg.q_learning.name
+            )
         else:
-            writer = SummaryWriter("../runs/" + args.name + "_" + str(i))
+            writer = SummaryWriter(
+                "../runs/"
+                + cfg.algorithm.name
+                + "_"
+                + cfg.q_learning.name
+                + "_"
+                + str(i)
+            )
 
         mpo_parametric_retrace(
-            env_name=args.env,
-            local_device="cpu",
+            env_name=cfg.overrides.env,
+            local_device=cfg.device,
             writer=writer,
-            lr_pi=args.lr_pi,
-            lr_q=args.lr_q,
-            lr_kl=args.lr_kl,
-            eps_mean=args.eps_mean,
-            eps_cov=args.eps_cov,
-            gamma=args.gamma,
-            batch_size=args.batch_state,
-            batch_size_act=args.batch_action,
-            update_steps=args.update_steps,
-            update_after=args.update_after,
-            min_steps_per_epoch=args.min_steps_per_epoch,
-            test_after=args.test_after,
-            total_steps=args.total_steps,
-            rollout_len=args.rollout_len,
+            lr_pi=cfg.algorithm.lr_pi,
+            lr_q=cfg.algorithm.lr_q,
+            lr_kl=cfg.algorithm.lr_kl,
+            eps_mean=cfg.algorithm.eps_mean,
+            eps_cov=cfg.algorithm.eps_cov,
+            gamma=cfg.algorithm.gamma,
+            batch_size=cfg.algorithm.batch_state,
+            batch_size_act=cfg.algorithm.batch_action,
+            update_steps=cfg.algorithm.update_steps,
+            update_after=cfg.algorithm.update_after,
+            min_steps_per_epoch=cfg.algorithm.min_steps_per_epoch,
+            test_after=cfg.algorithm.test_after,
+            total_steps=cfg.overrides.total_steps,
+            rollout_len=cfg.q_learning.rollout_len,
         )()

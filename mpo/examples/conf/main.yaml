@@ -1,6 +1,6 @@
 defaults:
-  - algorithm: sac
-  - q_learning: td0
+  - algorithm: mpo
+  - q_learning: retrace
   - overrides: pendulum
 
 experiment: default

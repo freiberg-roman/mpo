@@ -12,13 +12,13 @@ from mpo.eval.sac import set_up_sac
 def run(cfg: omegaconf.DictConfig):
     if cfg.algorithm.name == "mpo" and cfg.q_learning.name == "retrace":
         set_up_mpo_retace(cfg)
-    if cfg.algorithm.name == "mpo" and cfg.q_learning.name == "td0":
+    elif cfg.algorithm.name == "mpo" and cfg.q_learning.name == "td0":
         set_up_mpo_td0(cfg)
-    if cfg.algorithm.name == "mpo_parametric" and cfg.q_learning.name == "retrace":
+    elif cfg.algorithm.name == "mpo_parametric" and cfg.q_learning.name == "retrace":
         set_up_mpo_retace_parametric(cfg)
-    if cfg.algorithm.name == "mpo_parametric" and cfg.q_learning.name == "td0":
+    elif cfg.algorithm.name == "mpo_parametric" and cfg.q_learning.name == "td0":
         set_up_mpo_parametric_td0(cfg)
-    if cfg.algorithm.name == "sac":
+    elif cfg.algorithm.name == "sac":
         set_up_sac(cfg)
 
 
